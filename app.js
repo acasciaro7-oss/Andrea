@@ -1,7 +1,7 @@
 'use strict';
 /* La mia cucina – dati salvati solo nello spazio privato dell'app Android. */
 const KEY='la-mia-cucina-v1';
-const DEFAULT={items:[],shop:[],people:2,meal:'Cena'};
+const DEFAULT={items:[],shop:[],people:2,meal:'Cena',aiEndpoint:'',aiAccessCode:''};
 let db;
 try{
   const saved=JSON.parse(localStorage.getItem(KEY)||'null');
@@ -119,10 +119,15 @@ function photoOptions(mode){
 }
 function reviewModal(){
  open({title:'Controlla gli alimenti',body:
- '<p class="notice">Controlla i nomi e le quantità riconosciute. I prodotti selezionati saranno aggiunti alla dispensa.</p>'+
- review.map((p,i)=>'<div class="candidate"><input type="checkbox" data-review="'+i+'" '+(p.checked?'checked':'')+'><input class="field" id="rvName'+i+'" value="'+esc(p.name)+'"><input class="field q" id="rvQty'+i+'" type="number" min="0.1" step="0.1" value="'+(Number(p.qty)||1)+'"></div>').join('')+
- '<label class="label">Dove metterli?</label><select class="field" id="reviewLoc">'+locations.map(x=>'<option>'+x+'</option>').join('')+'</select><div style="height:17px"></div>'+
- '<button class="btn full" data-a="reviewSave">Aggiungi alla dispensa</button>'});
+ '<p class="notice">Verifica sempre nome, quantità, scadenza e posizione prima di aggiungere. I dati letti dalle foto possono contenere errori.</p>'+
+ review.map((p,i)=>'<div class="card"><div class="row"><label><input type="checkbox" data-review="'+i+'" '+(p.checked?'checked':'')+'> Prodotto '+(i+1)+'</label><span class="pill '+(p.confidence==='alta'?'':'warn')+'">'+esc(p.confidence||'Da verificare')+'</span></div>'+
+ '<label class="label">Alimento</label><input class="field" id="rvName'+i+'" value="'+esc(p.name)+'">'+
+ '<div class="grid2"><div><label class="label">Quantità</label><input class="field" id="rvQty'+i+'" type="number" min=".1" step=".1" value="'+(Number(p.qty)||1)+'"></div>'+
+ '<div><label class="label">Unità</label><select class="field" id="rvUnit'+i+'">'+units.map(x=>'<option '+(x===(p.unit||'pz')?'selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+
+ '<label class="label">Conservazione</label><select class="field" id="rvLoc'+i+'">'+locations.map(x=>'<option '+(x===(p.loc||'Dispensa')?'selected':'')+'>'+x+'</option>').join('')+'</select>'+
+ '<label class="label">Scadenza (se leggibile)</label><input class="field" type="date" id="rvExp'+i+'" value="'+esc(p.exp||'')+'">'+
+ (p.note?'<p class="muted">'+esc(p.note)+'</p>':'')+'</div>').join('')+
+ '<button class="btn full" data-a="reviewSave">Conferma e aggiungi alla dispensa</button>'});
 }
 async function loadTess(){
  if(window.Tesseract)return window.Tesseract;
@@ -146,10 +151,47 @@ function parseReceipt(text){
  const ban=/\b(totale|subtotal|resto|iva|p\.?\s*iva|pagamento|scontrino|documento|bancomat|contante|carta|articoli|acquisto|euro|grazie|numero|operatore|cassa|sconto|reparto|imponibile|credito|punti|codice|iva)\b/i;
  return text.split(/\n/).map(x=>x.trim().replace(/^\d{2}[:/]\d{2}[:/]\d{2,4}\s*/, '').replace(/\s+(?:€\s*)?[\d.,]+\s*[A-Z%]?\s*$/,'').replace(/^[\d.,€\s*×x-]+/,'').replace(/\s{2,}/g,' ').trim()).filter(x=>x.length>=4&&x.length<=65&&/[A-Za-zÀ-ž]{3}/.test(x)&&!ban.test(x)&&!(/^\d/.test(x))).slice(0,30).map(x=>({name:x,qty:1,checked:true}));
 }
+function formatAI(x){
+ const brand=String(x.brand||'').trim(),name=String(x.name||'').trim();
+ return {name:(brand&&!norm(name).includes(norm(brand))?brand+' · ':'')+name,
+ qty:Math.max(.1,Number(x.quantity)||1),unit:units.includes(x.unit)?x.unit:'confezioni',
+ loc:locations.includes(x.location)?x.location:'Dispensa',
+ exp:/^\d{4}-\d{2}-\d{2}$/.test(x.expirationDate||'')?x.expirationDate:'',
+ checked:true,confidence:x.confidence==='high'?'alta':x.confidence==='medium'?'media':'bassa',
+ note:String(x.note||'').slice(0,180)};
+}
+async function compressPhoto(file){
+ return new Promise((resolve,reject)=>{
+ const img=new Image(),url=URL.createObjectURL(file);
+ img.onload=()=>{try{
+ const dim=Math.max(img.naturalWidth,img.naturalHeight),scale=Math.min(1,1800/dim);
+ const canvas=document.createElement('canvas');canvas.width=Math.round(img.naturalWidth*scale);
+ canvas.height=Math.round(img.naturalHeight*scale);
+ canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+ const base64=canvas.toDataURL('image/jpeg',.85);URL.revokeObjectURL(url);resolve(base64);
+ }catch(e){URL.revokeObjectURL(url);reject(e)}};
+ img.onerror=()=>{URL.revokeObjectURL(url);reject(Error('Impossibile aprire la foto'))};
+ img.src=url;
+ });
+}
+async function gptPhoto(file){
+ const image=await compressPhoto(file),controller=new AbortController();
+ const t=setTimeout(()=>controller.abort(),45000);
+ try{
+ const res=await fetch(db.aiEndpoint,{method:'POST',headers:{'content-type':'application/json','x-kitchen-access':db.aiAccessCode},
+   body:JSON.stringify({kind:scanType,image}),signal:controller.signal});
+ const parsed=await res.json().catch(()=>({}));
+ if(!res.ok)throw Error(parsed.error||'Il riconoscimento GPT non è disponibile');
+ review=(Array.isArray(parsed.products)?parsed.products:[]).filter(x=>String(x.name||'').trim()).slice(0,30).map(formatAI);
+ if(!review.length)throw Error('Non sono stati trovati prodotti chiaramente riconoscibili');
+ reviewModal();
+ }finally{clearTimeout(t)}
+}
 async function processPhoto(file){
  if(!file)return;
- waiting('Riconoscimento in corso…');
+ waiting(db.aiEndpoint&&db.aiAccessCode?'GPT sta analizzando la foto…':'Lettura base: riconoscimento meno preciso…');
  try{
+  if(db.aiEndpoint&&db.aiAccessCode){await gptPhoto(file);return}
   if(scanType==='prodotto'&&typeof BarcodeDetector!=='undefined'&&typeof createImageBitmap==='function'){
     try{const bmp=await createImageBitmap(file);const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});const found=await detector.detect(bmp);bmp.close();
       if(found.length){const name=await lookupBarcode(found[0].rawValue);if(name){review=[{name,qty:1,checked:true}];reviewModal();return;}}}catch(e){}
@@ -160,8 +202,9 @@ async function processPhoto(file){
   const lines=parseReceipt(raw);
   if(scanType==='scontrino')review=lines;
   else{
-    const first=lines.find(x=>/[A-Za-zÀ-ž]{3,}/.test(x.name));
-    review=first?[first]:[];
+    const food=/ravioli|tortellini|latte|yogurt|pasta|riso|biscott|zucch|prosciutto|formaggio|mozzarella|tonno|salmone|pollo|pane|uova|pomodor|pizza|burro|parmigiano|insalata|gnocchi|ricotta/i;
+    const first=lines.find(x=>food.test(x.name))||lines.find(x=>/[A-Za-zÀ-ž]{4,}/.test(x.name));
+    review=first?[Object.assign({},first,{unit:'confezioni',confidence:'bassa',note:'Lettura base: verifica con attenzione il nome'})]:[];
   }
   if(!review.length)throw new Error('Non sono riuscito a identificare prodotti leggibili');
   reviewModal();
@@ -176,6 +219,10 @@ function detail(name){
 function settings(){
  open({title:'Impostazioni',body:
  '<p class="notice">Prodotti e lista sono salvati solo nel telefono. Non vengono sincronizzati con il vecchio sito. Esporta un backup periodicamente.</p>'+
+ '<div class="card" style="background:#eff6ee"><b>✨ Riconoscimento GPT</b><p class="muted">Il servizio GPT richiede un backend privato con API OpenAI. Inserisci qui URL e codice di accesso del tuo servizio: non inserire la chiave OpenAI.</p>'+
+ '<label class="label">URL del servizio HTTPS</label><input class="field" id="aiEndpoint" type="url" placeholder="https://nome.vercel.app/api/recognize" value="'+esc(db.aiEndpoint||'')+'">'+
+ '<label class="label">Codice di accesso del servizio</label><input class="field" id="aiAccessCode" type="password" autocomplete="off" placeholder="Codice privato (non API key)" value="'+esc(db.aiAccessCode||'')+'">'+
+ '<div style="height:10px"></div><button class="btn full" data-a="saveAI">Salva configurazione GPT</button></div>'+
  '<button class="opt" data-a="export"><span class="sym">📤</span><span><b>Esporta backup</b><small>Salva i prodotti in un file JSON</small></span></button>'+
  '<button class="opt" data-a="import"><span class="sym">📥</span><span><b>Importa backup</b><small>Ripristina da un file JSON</small></span></button>'+
  '<button class="opt" data-a="demo"><span class="sym">🧺</span><span><b>Inserisci prodotti dimostrativi</b><small>Prova l’app con una spesa di esempio</small></span></button>'+
@@ -192,6 +239,12 @@ document.addEventListener('click',async e=>{
  if(act==='close'){close();return}
  if(act==='tab'){page=v;close();render();return}
  if(act==='settings'){settings();return}
+ if(act==='saveAI'){
+  const url=$('#aiEndpoint').value.trim(),code=$('#aiAccessCode').value.trim();
+  if(url&&(!url.startsWith('https://')||!url.endsWith('/api/recognize'))){toast('URL non valido: serve https://.../api/recognize');return}
+  if(url&&!code){toast('Serve il codice di accesso');return}
+  db.aiEndpoint=url;db.aiAccessCode=code;close();save();toast(url?'GPT configurato':'Lettura base attiva');return
+ }
  if(act==='new'){productForm();return}
  if(act==='edit'){const p=db.items.find(x=>x.id===v);if(p)productForm(p);return}
  if(act==='filter'){category=v;render();return}
@@ -225,12 +278,12 @@ document.addEventListener('click',async e=>{
   catch(e){open({title:'Prodotto non trovato',body:'<p class="notice">'+esc(e.message)+'</p><button class="btn full" data-a="new">Inserisci manualmente</button>'})}return
  }
  if(act==='reviewSave'){
-  const loc=$('#reviewLoc').value;
   let done=0;
   review.forEach((x,i)=>{
-   if(!$('[data-review="'+i+'"]').checked)return;
+   const checkbox=$('[data-review="'+i+'"]');if(!checkbox||!checkbox.checked)return;
    const name=$('#rvName'+i).value.trim(),qty=Number($('#rvQty'+i).value);
-   if(name&&qty>0&&Number.isFinite(qty)){addItem({name,qty,unit:'pz',loc,exp:''});done++}
+   const unit=$('#rvUnit'+i).value,loc=$('#rvLoc'+i).value,exp=$('#rvExp'+i).value;
+   if(name&&qty>0&&Number.isFinite(qty)){addItem({name,qty,unit,loc,exp});done++}
   });
   close();save();toast(done+' prodotti aggiunti');return
  }
