@@ -1,7 +1,7 @@
 'use strict';
 /* La mia cucina – dati salvati solo nello spazio privato dell'app Android. */
 const KEY='la-mia-cucina-v1';
-const DEFAULT={items:[],shop:[],people:2,meal:'Cena',aiEndpoint:'',aiAccessCode:''};
+const DEFAULT={items:[],shop:[],people:2,meal:'Cena'};
 let db;
 try{
   const saved=JSON.parse(localStorage.getItem(KEY)||'null');
@@ -147,68 +147,172 @@ async function lookupBarcode(code){
  return (data.product.product_name_it||data.product.product_name||'').trim();
 }
 function waiting(text){open({title:'Sto leggendo la foto',body:'<div class="notice" id="readStatus">'+esc(text)+'</div><p class="muted">L’operazione dipende dalla qualità della foto e dalla connessione.</p>'})}
+
+const FOOD_NAMES=[
+ ['ravioli','Ravioli'],['tortellini','Tortellini'],['cappelletti','Cappelletti'],['gnocchi','Gnocchi'],
+ ['lasagne','Lasagne'],['pasta','Pasta'],['spaghetti','Spaghetti'],['penne','Penne'],['riso','Riso'],
+ ['latte','Latte'],['yogurt','Yogurt'],['mozzarella','Mozzarella'],['ricotta','Ricotta'],['parmigiano','Parmigiano'],
+ ['prosciutto','Prosciutto'],['salmone','Salmone'],['tonno','Tonno'],['pollo','Pollo'],['uova','Uova'],
+ ['formaggio','Formaggio'],['burro','Burro'],['pane','Pane'],['biscotti','Biscotti'],
+ ['zucchine','Zucchine'],['pomodori','Pomodori'],['patate','Patate'],['spinaci','Spinaci'],
+ ['minestrone','Minestrone'],['hamburger','Hamburger'],['pizza','Pizza'],['fagioli','Fagioli'],
+ ['passata','Passata'],['pesto','Pesto'],['focaccia','Focaccia'],['farina','Farina'],
+ ['insalata','Insalata'],['panna','Panna'],['mais','Mais'],['carote','Carote'],['olio','Olio'],
+ ['gelato','Gelato'],['piselli','Piselli'],['mortadella','Mortadella'],['guanciale','Guanciale']
+];
+function levenshtein(a,b){
+ if(Math.abs(a.length-b.length)>2)return 4;
+ let v=Array.from({length:b.length+1},(_,i)=>i);
+ for(let i=0;i<a.length;i++){
+  let nxt=[i+1];for(let j=0;j<b.length;j++)nxt.push(Math.min(nxt[j]+1,v[j+1]+1,v[j]+(a[i]===b[j]?0:1)));
+  v=nxt;
+ }return v[b.length];
+}
+function detectTerm(text){
+ const words=norm(text).split(' ').filter(Boolean);
+ let best=null;
+ for(const [word,label] of FOOD_NAMES){
+  let hit=-1,dist=9;
+  for(let i=0;i<words.length;i++){
+   const w=words[i],d=levenshtein(w,word);
+   const permitted=word.length>=7?2:word.length>=5?1:0;
+   if(d<=permitted&&d<dist){dist=d;hit=i}
+  }
+  if(hit>=0){
+   const score=(dist===0?8:5)-(hit*.07);
+   if(!best||score>best.score)best={word,label,score};
+  }
+ }return best;
+}
+function safeDate(day,month,year){
+ day=Number(day);month=Number(month);year=Number(year);
+ if(year<100)year+=2000;
+ if(year<2020||year>2040||month<1||month>12||day<1||day>31)return '';
+ const d=new Date(Date.UTC(year,month-1,day));
+ return d.getUTCDate()===day&&d.getUTCMonth()===month-1?
+  String(year)+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0'):'';
+}
+function findExpiration(text){
+ const all=[];
+ const re=/\b([0-3]?\d)[/.\-]([01]?\d)[/.\-]((?:20)?\d\d)\b/g;
+ let m;while((m=re.exec(text))!==null){
+  const date=safeDate(m[1],m[2],m[3]);if(!date)continue;
+  const context=norm(text.slice(Math.max(0,m.index-130),m.index));
+  let weight=0;
+  if(/consumare\s+entro|scadenza|scad[ea]|best before|use by/.test(context.slice(-75)))weight+=10;
+  if(/prodotto\s+il|confezionat|lotto/.test(context.slice(-75)))weight-=6;
+  all.push({date,weight,position:m.index});
+ }
+ if(!all.length)return '';
+ all.sort((a,b)=>b.weight-a.weight||b.position-a.position);
+ return all[0].date;
+}
+function normalizeOCRText(text){
+ return String(text||'').replace(/[|¦]/g,'I').replace(/[^\S\r\n]+/g,' ').split(/\r?\n/)
+ .map(x=>x.trim()).filter(x=>x.length>1&&x.length<130).join('\n');
+}
+function parsePhotoProduct(text){
+ const raw=normalizeOCRText(text),lines=raw.split('\n'),top=lines.slice(0,22);
+ const candidates=top.map((line,i)=>{
+  const match=detectTerm(line);
+  return match?{line,i,match,score:match.score-i*.35}:null
+ }).filter(Boolean).sort((a,b)=>b.score-a.score);
+ if(!candidates.length)return [];
+ const best=candidates[0],kind=best.match.label;
+ const all=norm(raw),has=word=>new RegExp('\\b'+word+'\\b').test(all);
+ let title=kind;
+ if(kind==='Ravioli'&&has('zucca'))title='Ravioli ripieni alla zucca';
+ else if(kind==='Tortellini'&&has('prosciutto'))title='Tortellini al prosciutto';
+ else if(/ravioli|tortellini|cappelletti|gnocchi/i.test(kind)){
+  const remainder=best.line.replace(new RegExp(best.match.word,'i'),'').trim();
+  if(remainder&&remainder.length<=26&&!/\d/.test(remainder))title=kind+' '+remainder.toLowerCase();
+ }
+ if(kind==='Passata'&&has('pomodoro'))title='Passata di pomodoro';
+ const brand=/esselung[a4]/i.test(raw)?'Esselunga':/barill[a4]/i.test(raw)?'Barilla':
+ /mulino\s*bianco/i.test(raw)?'Mulino Bianco':/galban[i1]/i.test(raw)?'Galbani':'';
+ const name=brand?brand+' · '+title:title;
+ const chilled=/ravioli|tortellini|pasta\s*fresca|mozzarella|ricotta|formaggio|latte|yogurt|burro|pollo|prosciutto/i.test(raw)?
+  'Frigo':'Dispensa';
+ const loc=/surgelat|congelat|freezer/i.test(raw)?'Freezer':chilled;
+ return [{name,qty:1,unit:'confezioni',loc,exp:findExpiration(raw),checked:true,
+  confidence:best.match.score>=8?'media':'bassa',
+  note:'Risultato automatico gratuito: controlla soprattutto nome, quantità e scadenza.'}];
+}
 function parseReceipt(text){
- const ban=/\b(totale|subtotal|resto|iva|p\.?\s*iva|pagamento|scontrino|documento|bancomat|contante|carta|articoli|acquisto|euro|grazie|numero|operatore|cassa|sconto|reparto|imponibile|credito|punti|codice|iva)\b/i;
- return text.split(/\n/).map(x=>x.trim().replace(/^\d{2}[:/]\d{2}[:/]\d{2,4}\s*/, '').replace(/\s+(?:€\s*)?[\d.,]+\s*[A-Z%]?\s*$/,'').replace(/^[\d.,€\s*×x-]+/,'').replace(/\s{2,}/g,' ').trim()).filter(x=>x.length>=4&&x.length<=65&&/[A-Za-zÀ-ž]{3}/.test(x)&&!ban.test(x)&&!(/^\d/.test(x))).slice(0,30).map(x=>({name:x,qty:1,checked:true}));
+ const lines=normalizeOCRText(text).split('\n');
+ const banned=/\b(totale|subtotale|resto|iva|pagamento|scontrino|documento|bancomat|contante|carta|acquisto|grazie|numero|operatore|cassa|sconto|reparto|imponibile|credito|punti|codice|partita|transazione|arrotondamento|fiscale|eur|cash|visa|mastercard)\b/i;
+ const found=[],seen=new Set();
+ for(const raw of lines){
+  if(banned.test(raw)||/^\d{2}[/.:]\d{2}[/.:]\d{2,4}/.test(raw))continue;
+  const name=raw.replace(/^\s*(?:\d{1,3}\s*[x×]\s*)?/i,'').replace(/\s+(?:€\s*)?\d{1,4}[,.]\d\d\s*[A-Z]?\s*$/,'').replace(/^\d{10,14}\s*/,'').trim();
+  if(name.length<4||name.length>65||!/[a-zàèìòù]{3}/i.test(name)||/^[\d\s.,€%-]+$/.test(name))continue;
+  const m=detectTerm(name);
+  if(!m)continue;
+  const key=norm(name);if(seen.has(key))continue;seen.add(key);
+  found.push({name,qty:1,unit:'confezioni',loc:/latte|uova|mozzarella|ravioli|fresca|yogurt|burro|salmone|prosciutto/i.test(name)?'Frigo':'Dispensa',exp:'',checked:true,confidence:'bassa',
+   note:'Nome da scontrino: conferma che sia un alimento effettivamente acquistato.'});
+ }
+ return found.slice(0,30);
 }
-function formatAI(x){
- const brand=String(x.brand||'').trim(),name=String(x.name||'').trim();
- return {name:(brand&&!norm(name).includes(norm(brand))?brand+' · ':'')+name,
- qty:Math.max(.1,Number(x.quantity)||1),unit:units.includes(x.unit)?x.unit:'confezioni',
- loc:locations.includes(x.location)?x.location:'Dispensa',
- exp:/^\d{4}-\d{2}-\d{2}$/.test(x.expirationDate||'')?x.expirationDate:'',
- checked:true,confidence:x.confidence==='high'?'alta':x.confidence==='medium'?'media':'bassa',
- note:String(x.note||'').slice(0,180)};
+function makeOcrCanvas(img,options){
+ const width=img.naturalWidth,height=img.naturalHeight;
+ const canvas=document.createElement('canvas');
+ const cropY=options.crop?Math.round(height*.02):0,cropH=options.crop?Math.round(height*.70):height;
+ const scale=Math.min(2,2000/Math.max(width,cropH));
+ canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(cropH*scale));
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});
+ ctx.drawImage(img,0,cropY,width,cropH,0,0,canvas.width,canvas.height);
+ if(options.boost){
+  const data=ctx.getImageData(0,0,canvas.width,canvas.height),p=data.data;
+  for(let i=0;i<p.length;i+=4){
+   const gray=.299*p[i]+.587*p[i+1]+.114*p[i+2];
+   const value=Math.max(0,Math.min(255,(gray-127)*1.6+127));
+   p[i]=p[i+1]=p[i+2]=value;
+  }
+  ctx.putImageData(data,0,0);
+ }
+ return canvas;
 }
-async function compressPhoto(file){
- return new Promise((resolve,reject)=>{
- const img=new Image(),url=URL.createObjectURL(file);
- img.onload=()=>{try{
- const dim=Math.max(img.naturalWidth,img.naturalHeight),scale=Math.min(1,1800/dim);
- const canvas=document.createElement('canvas');canvas.width=Math.round(img.naturalWidth*scale);
- canvas.height=Math.round(img.naturalHeight*scale);
- canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
- const base64=canvas.toDataURL('image/jpeg',.85);URL.revokeObjectURL(url);resolve(base64);
- }catch(e){URL.revokeObjectURL(url);reject(e)}};
- img.onerror=()=>{URL.revokeObjectURL(url);reject(Error('Impossibile aprire la foto'))};
- img.src=url;
- });
-}
-async function gptPhoto(file){
- const image=await compressPhoto(file),controller=new AbortController();
- const t=setTimeout(()=>controller.abort(),45000);
+async function recognizePhotoOffline(file,tess){
+ const url=URL.createObjectURL(file),img=new Image();
  try{
- const res=await fetch(db.aiEndpoint,{method:'POST',headers:{'content-type':'application/json','x-kitchen-access':db.aiAccessCode},
-   body:JSON.stringify({kind:scanType,image}),signal:controller.signal});
- const parsed=await res.json().catch(()=>({}));
- if(!res.ok)throw Error(parsed.error||'Il riconoscimento GPT non è disponibile');
- review=(Array.isArray(parsed.products)?parsed.products:[]).filter(x=>String(x.name||'').trim()).slice(0,30).map(formatAI);
- if(!review.length)throw Error('Non sono stati trovati prodotti chiaramente riconoscibili');
- reviewModal();
- }finally{clearTimeout(t)}
+  await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(Error('Immagine illeggibile'));img.src=url});
+  const canvas=makeOcrCanvas(img,{crop:scanType==='prodotto',boost:true});
+  const first=await tess.recognize(canvas,'ita+eng');let full=String(first.data&&first.data.text||'');
+  let candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
+  if(!candidates.length||scanType==='prodotto'&&!findExpiration(full)){
+    if($('#readStatus'))$('#readStatus').textContent='Controllo dettagli e scadenza…';
+    const second=await tess.recognize(makeOcrCanvas(img,{crop:false,boost:false}),'ita+eng');
+    const extra=String(second.data&&second.data.text||'');
+    full+='\n'+extra;
+    candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
+  }
+  return candidates;
+ }finally{URL.revokeObjectURL(url)}
 }
 async function processPhoto(file){
  if(!file)return;
- waiting(db.aiEndpoint&&db.aiAccessCode?'GPT sta analizzando la foto…':'Lettura base: riconoscimento meno preciso…');
+ waiting('Lettura gratuita della foto in corso…');
  try{
-  if(db.aiEndpoint&&db.aiAccessCode){await gptPhoto(file);return}
   if(scanType==='prodotto'&&typeof BarcodeDetector!=='undefined'&&typeof createImageBitmap==='function'){
-    try{const bmp=await createImageBitmap(file);const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});const found=await detector.detect(bmp);bmp.close();
-      if(found.length){const name=await lookupBarcode(found[0].rawValue);if(name){review=[{name,qty:1,checked:true}];reviewModal();return;}}}catch(e){}
+   try{
+    const bitmap=await createImageBitmap(file),detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});
+    const found=await detector.detect(bitmap);bitmap.close();
+    if(found.length){
+     const name=await lookupBarcode(found[0].rawValue);
+     if(name){review=[{name,qty:1,unit:'confezioni',loc:'Dispensa',exp:'',checked:true,confidence:'media',note:'Controlla il nome e la conservazione.'}];reviewModal();return}
+    }
+   }catch(e){}
   }
   const tess=await loadTess();
-  const result=await tess.recognize(file,'ita+eng');
-  const raw=result&&result.data&&result.data.text||'';
-  const lines=parseReceipt(raw);
-  if(scanType==='scontrino')review=lines;
-  else{
-    const food=/ravioli|tortellini|latte|yogurt|pasta|riso|biscott|zucch|prosciutto|formaggio|mozzarella|tonno|salmone|pollo|pane|uova|pomodor|pizza|burro|parmigiano|insalata|gnocchi|ricotta/i;
-    const first=lines.find(x=>food.test(x.name))||lines.find(x=>/[A-Za-zÀ-ž]{4,}/.test(x.name));
-    review=first?[Object.assign({},first,{unit:'confezioni',confidence:'bassa',note:'Lettura base: verifica con attenzione il nome'})]:[];
-  }
-  if(!review.length)throw new Error('Non sono riuscito a identificare prodotti leggibili');
+  review=await recognizePhotoOffline(file,tess);
+  if(!review.length)throw Error('Testo non riconosciuto con sufficiente affidabilità. Scatta la foto più vicino al nome del prodotto, con buona luce, oppure inseriscilo manualmente.');
   reviewModal();
- }catch(e){open({title:'Non riesco a leggere la foto',body:'<p class="notice">'+esc(e.message||'Errore di riconoscimento')+'</p><button class="btn full" data-a="new">Inserisci manualmente</button>'})}
+ }catch(err){
+  open({title:'La foto non è stata riconosciuta',body:'<p class="notice">'+esc(err.message||'Errore nella lettura')+'</p>'+
+   '<button class="btn full" data-a="scanMenu">Riprova con un’altra foto</button><div style="height:10px"></div>'+
+   '<button class="btn white full" data-a="new">Inserisci manualmente</button>'});
+ }
 }
 function detail(name){
  const r=recipeData.find(x=>x[0]===name);if(!r)return;
@@ -218,14 +322,11 @@ function detail(name){
 }
 function settings(){
  open({title:'Impostazioni',body:
- '<p class="notice">Prodotti e lista sono salvati solo nel telefono. Non vengono sincronizzati con il vecchio sito. Esporta un backup periodicamente.</p>'+
- '<div class="card" style="background:#eff6ee"><b>✨ Riconoscimento GPT</b><p class="muted">Il servizio GPT richiede un backend privato con API OpenAI. Inserisci qui URL e codice di accesso del tuo servizio: non inserire la chiave OpenAI.</p>'+
- '<label class="label">URL del servizio HTTPS</label><input class="field" id="aiEndpoint" type="url" placeholder="https://nome.vercel.app/api/recognize" value="'+esc(db.aiEndpoint||'')+'">'+
- '<label class="label">Codice di accesso del servizio</label><input class="field" id="aiAccessCode" type="password" autocomplete="off" placeholder="Codice privato (non API key)" value="'+esc(db.aiAccessCode||'')+'">'+
- '<div style="height:10px"></div><button class="btn full" data-a="saveAI">Salva configurazione GPT</button></div>'+
+ '<p class="notice">La mia cucina usa solo strumenti gratuiti. Le foto vengono lette localmente con OCR open source (qualità variabile); i codici a barre vengono cercati in Open Food Facts. Non utilizziamo GPT né servizi a pagamento.</p>'+
+ '<p class="notice">Dispensa e lista sono salvate nel telefono. Fai periodicamente il backup prima di cambiare dispositivo.</p>'+
  '<button class="opt" data-a="export"><span class="sym">📤</span><span><b>Esporta backup</b><small>Salva i prodotti in un file JSON</small></span></button>'+
- '<button class="opt" data-a="import"><span class="sym">📥</span><span><b>Importa backup</b><small>Ripristina da un file JSON</small></span></button>'+
- '<button class="opt" data-a="demo"><span class="sym">🧺</span><span><b>Inserisci prodotti dimostrativi</b><small>Prova l’app con una spesa di esempio</small></span></button>'+
+ '<button class="opt" data-a="import"><span class="sym">📥</span><span><b>Importa backup</b><small>Ripristina un file JSON</small></span></button>'+
+ '<button class="opt" data-a="demo"><span class="sym">🧺</span><span><b>Prodotti dimostrativi</b><small>Prova con una spesa di esempio</small></span></button>'+
  '<button class="btn red full" data-a="reset">Cancella tutti i dati</button>'});
 }
 function addItem(p){
@@ -239,12 +340,6 @@ document.addEventListener('click',async e=>{
  if(act==='close'){close();return}
  if(act==='tab'){page=v;close();render();return}
  if(act==='settings'){settings();return}
- if(act==='saveAI'){
-  const url=$('#aiEndpoint').value.trim(),code=$('#aiAccessCode').value.trim();
-  if(url&&(!url.startsWith('https://')||!url.endsWith('/api/recognize'))){toast('URL non valido: serve https://.../api/recognize');return}
-  if(url&&!code){toast('Serve il codice di accesso');return}
-  db.aiEndpoint=url;db.aiAccessCode=code;close();save();toast(url?'GPT configurato':'Lettura base attiva');return
- }
  if(act==='new'){productForm();return}
  if(act==='edit'){const p=db.items.find(x=>x.id===v);if(p)productForm(p);return}
  if(act==='filter'){category=v;render();return}
