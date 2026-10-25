@@ -194,7 +194,7 @@ function safeDate(day,month,year){
 }
 function findExpiration(text){
  const all=[];
- const re=/\b([0-3]?\d)[/.\-]([01]?\d)[/.\-]((?:20)?\d\d)\b/g;
+ const re=/\b([0-3]?\d)[/.:\-]([01]?\d)[/.:\-]((?:20)?\d\d)\b/g;
  let m;while((m=re.exec(text))!==null){
   const date=safeDate(m[1],m[2],m[3]);if(!date)continue;
   const context=norm(text.slice(Math.max(0,m.index-130),m.index));
@@ -265,24 +265,36 @@ function makeOcrCanvas(img,options){
  if(options.boost){
   const data=ctx.getImageData(0,0,canvas.width,canvas.height),p=data.data;
   for(let i=0;i<p.length;i+=4){
-   const gray=.299*p[i]+.587*p[i+1]+.114*p[i+2];
-   const value=Math.max(0,Math.min(255,(gray-127)*1.6+127));
+   const r=p[i],g=p[i+1],b=p[i+2];
+   const gray=.299*r+.587*g+.114*b;
+   // Evidenzia anche scritte rosse/arancioni su sfondo chiaro,
+   // altrimenti le etichette tipo "ripieno alla zucca" scompaiono.
+   const orangeText=r-g>30&&r-b>42&&g<195&&b<170;
+   const value=orangeText||gray<126?0:gray>185?255:Math.max(0,Math.min(255,(gray-127)*1.7+127));
    p[i]=p[i+1]=p[i+2]=value;
   }
   ctx.putImageData(data,0,0);
  }
  return canvas;
 }
-async function recognizePhotoOffline(file,tess){
+let localOcrWorkerPromise=null;
+async function getLocalOcrWorker(){
+ if(!localOcrWorkerPromise){
+  localOcrWorkerPromise=loadTess().then(t=>t.createWorker(['ita','eng']));
+ }
+ try{return await localOcrWorkerPromise}
+ catch(e){localOcrWorkerPromise=null;throw e}
+}
+async function recognizePhotoOffline(file,worker){
  const url=URL.createObjectURL(file),img=new Image();
  try{
   await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(Error('Immagine illeggibile'));img.src=url});
   const canvas=makeOcrCanvas(img,{crop:scanType==='prodotto',boost:true});
-  const first=await tess.recognize(canvas,'ita+eng');let full=String(first.data&&first.data.text||'');
+  const first=await worker.recognize(canvas);let full=String(first.data&&first.data.text||'');
   let candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
   if(!candidates.length||scanType==='prodotto'&&!findExpiration(full)){
     if($('#readStatus'))$('#readStatus').textContent='Controllo dettagli e scadenza…';
-    const second=await tess.recognize(makeOcrCanvas(img,{crop:false,boost:false}),'ita+eng');
+    const second=await worker.recognize(makeOcrCanvas(img,{crop:false,boost:false}));
     const extra=String(second.data&&second.data.text||'');
     full+='\n'+extra;
     candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
@@ -304,8 +316,8 @@ async function processPhoto(file){
     }
    }catch(e){}
   }
-  const tess=await loadTess();
-  review=await recognizePhotoOffline(file,tess);
+  const worker=await getLocalOcrWorker();
+  review=await recognizePhotoOffline(file,worker);
   if(!review.length)throw Error('Testo non riconosciuto con sufficiente affidabilità. Scatta la foto più vicino al nome del prodotto, con buona luce, oppure inseriscilo manualmente.');
   reviewModal();
  }catch(err){
