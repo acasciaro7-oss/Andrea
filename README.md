@@ -1,36 +1,25 @@
-# La mia cucina – app Android e iPhone
+# La mia cucina – gratuita
 
-Progetto personale per dispensa, frigorifero, freezer, ricette e lista della spesa.
+Applicazione per tenere sotto controllo la dispensa, il frigorifero e il freezer, gestire la lista della spesa e trovare idee per pranzo e cena.
 
-## Riconoscimento GPT Vision
+**Versione iPhone:** https://acasciaro7-oss.github.io/Andrea/
 
-L'app frontend è disponibile su GitHub Pages; il backend sicuro in `api/recognize.js` funziona su Vercel con OpenAI Responses API e analisi immagini.
+## Riconoscimento foto senza costi
 
-### Installazione del backend (una volta sola)
+- OCR gratuito con [Tesseract.js](https://github.com/naptha/tesseract.js), eseguito nel browser o nell'app Android.
+- Elaborazione migliorata per scritte chiare, arancioni o di dimensioni diverse.
+- Riconoscimento prudente del nome prodotto, marchio, conservazione e, **solo se leggibile**, data di scadenza.
+- Scansione codice a barre dove supportata e ricerca in Open Food Facts.
+- Revisione manuale dei risultati prima di salvare un alimento.
+- Nessuna chiave API OpenAI, nessun abbonamento o servizio AI a pagamento richiesto.
 
-1. Crea un account Vercel, seleziona **Add New Project** e importa questo repository GitHub `acasciaro7-oss/Andrea` (branch di produzione `main`).
-2. Lascia il Framework Preset su **Other** e pubblica. Vercel riconoscerà la function `/api/recognize.js`.
-3. In **Project Settings → Environment Variables**, imposta:
-   - `OPENAI_API_KEY`: chiave API da platform.openai.com, NON il login ChatGPT e NON inserirla nella pagina web.
-   - `KITCHEN_ACCESS_CODE`: crea una password casuale segreta di ALMENO 18 caratteri, da usare per te e Denisa.
-   - `OPENAI_MODEL`: facoltativo; valore predefinito `gpt-6.1-sol`.
-4. Fai un nuovo deployment per applicare le variabili; il solo salvataggio non aggiorna i deployment esistenti.
-5. Nell'app La mia cucina premi **⚙ Impostazioni → Riconoscimento GPT** e inserisci URL del backend `https://<tuo-progetto>.vercel.app/api/recognize` e lo stesso `KITCHEN_ACCESS_CODE`. Il codice non è una chiave OpenAI e non conferisce accesso diretto ai pagamenti.
+**Limiti:** OCR gratuito non ha la capacità di ragionare sulle immagini di un modello multimodale. Date piccole o stampate a puntini, foto mosse e scontrini difficili potrebbero richiedere correzioni manuali. Il motore OCR può richiedere connessione per il primo caricamento. I dati rimangono in locale sul dispositivo.
 
-### Come funziona
+### Installazione iPhone
+Da Safari apri il link dell'app → Condividi → Aggiungi alla schermata Home.
 
-- La fotocamera seleziona/scatta una foto e la riduce a un JPEG con lato massimo 1800 pixel.
-- Quando il backend è configurato, l'app invia l'immagine al tuo servizio Vercel; questo inoltra la foto all'API OpenAI, con chiave server privata.
-- Il modello restituisce oggetti strutturati con **nome, marca, quantità, unità, posto, data scadenza e qualità della lettura**.
-- Una schermata permette di correggere TUTTI i campi prima di aggiungere. Nessun inserimento automatico di dati non verificati.
-- Se non configurato, l'app usa il vecchio OCR locale, meno affidabile.
-- I dati della dispensa restano localmente sul dispositivo, non condivisi automaticamente fra iPhone e Android.
+### Installazione Android
+L'APK viene compilato nel repository privato `acasciaro7-oss/App-cucina`. Scarica l'artifact dell'ultima GitHub Action completata.
 
-### Sicurezza e costi
-
-- **MAI inserire `OPENAI_API_KEY` nel frontend, in una conversazione o su GitHub.** Solo nelle variabili d'ambiente Vercel.
-- Il backend richiede un codice di accesso lungo, verifica la provenienza e limita la dimensione dell'immagine.
-- Foto e scontrini inviati per il riconoscimento sono elaborati da OpenAI attraverso il backend; non inviare contenuti sensibili non necessari.
-- Vercel ha un piano Hobby gratuito per progetti personali entro i limiti di utilizzo; **l'API OpenAI è a consumo**, separata da ChatGPT Plus.
-- Configura il budget di spesa del progetto OpenAI sulla piattaforma API.
-- La sicurezza finale e la correttezza dei risultati devono essere testate sugli smartphone.
+### Protezione dei dati
+La dispensa di ciascun dispositivo rimane separata. Per non perdere i dati, usa Impostazioni → Esporta backup prima di cambiare o disinstallare l'app.
