@@ -28,7 +28,7 @@ const server=http.createServer((req,res)=>{
   const app=await context.newPage();app.on('pageerror',e=>errors.push(e.message));await app.goto(url);
   await app.waitForFunction(()=>document.title==='MyFoodWorld');
   await app.waitForSelector('#appUpdate button',{timeout:60000});
-  await app.locator('#appUpdate button').click();
+  await Promise.all([app.waitForNavigation({waitUntil:'load'}),app.locator('#appUpdate button').click()]);
   console.log('Update state:',await app.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return {url:location.href,controller:navigator.serviceWorker.controller&&navigator.serviceWorker.controller.state,active:r&&r.active&&r.active.state,waiting:r&&r.waiting&&r.waiting.state,caches:await caches.keys()}}));
   await app.waitForFunction(()=>typeof RECIPE_CATALOG!=='undefined'&&RECIPE_CATALOG.length===1000);
   await app.waitForFunction(async()=>!(await caches.keys()).includes('cucina-offline-v3-free-ocr'));

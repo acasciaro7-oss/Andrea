@@ -18,7 +18,11 @@ if('serviceWorker' in navigator){
    refreshRequested=true;registration.waiting.postMessage({type:'ACTIVATE_UPDATE'});
   });document.body.append(panel);
  };
- navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshRequested&&!reloading){reloading=true;location.reload()}});
+ navigator.serviceWorker.addEventListener('controllerchange',()=>{
+  if(!refreshRequested||reloading)return;const worker=navigator.serviceWorker.controller;if(!worker)return;
+  const reloadWhenActivated=()=>{if(worker.state==='activated'&&!reloading){reloading=true;worker.removeEventListener('statechange',reloadWhenActivated);setTimeout(()=>location.reload(),0)}};
+  worker.addEventListener('statechange',reloadWhenActivated);reloadWhenActivated();
+ });
  window.addEventListener('load',async()=>{
   try{
    const registration=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});
