@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "La mia cucina",
+  "short_name": "La mia cucina",
+  "description": "Organizza dispensa, frigorifero e freezer e scegli cosa cucinare",
+  "start_url": "./",
+  "scope": "./",
+  "lang": "it-IT",
+  "display": "standalone",
+  "background_color": "#f7f6f0",
+  "theme_color": "#0b5147",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    }
+  ]
+}

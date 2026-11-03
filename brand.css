@@ -1,0 +1,29 @@
+/* Approved artwork is displayed as-is: no filters, recoloring or distortion. */
+:root{--forest:#0a1747;--forest2:#071035;--mint:#eaf7f5;--bg:#f6f8fc;--ink:#0a1747;--muted:#66748c;--line:#e5eaf2;--shadow:0 8px 26px #0a17470d}
+.hero{background:#fff;color:var(--ink)}
+.hero:before,.hero:after{display:none}
+.brandbar{gap:8px}
+.brandicon{display:block;flex:none;width:60px;height:60px;border-radius:0;background:none;object-fit:contain}
+.brand-name{min-width:0;flex:1}
+.wordmark{display:block;width:100%;max-width:260px;height:auto;object-fit:contain}
+.brandbar small{color:#53627a;font-size:11px;margin-top:2px}
+.settings{flex:none;background:#f0f3f9;color:var(--ink)}
+.welcome{margin-top:32px}
+.welcome h1{font-size:34px;letter-spacing:-1.2px}
+.welcome p{color:#53627a}
+.eyebrow{color:#087f88}
+.photo{background:#eaf7f5}
+.photo p{color:#536b77}
+.btn.alt{background:#edf2fa;color:var(--ink)}
+.category-icon{display:block;width:40px;height:36px;object-fit:contain}
+.nav-icon{display:block;width:30px;height:28px;object-fit:contain}
+.bottom button{color:#66748c;min-height:50px}
+.bottom button>span{height:28px;line-height:28px;font-size:32px}
+.bottom button.active{color:#0a1747;position:relative}
+.bottom button.active:before{content:"";position:absolute;top:-10px;width:24px;height:3px;border-radius:3px;background:#0a1747}
+.simple p{color:#d7e3ff}
+.settings-logo{display:block;max-width:280px;width:100%;height:auto;object-fit:contain;margin:20px auto 8px}
+.brand-version{text-align:center;color:var(--muted);font-size:12px;margin:0 0 18px}
+.field:focus{outline-color:#12a9b6}
+button:focus-visible{outline:3px solid #12a9b6;outline-offset:3px}
+@media(max-width:360px){.brandicon{width:48px;height:48px}.hero{padding-left:16px;padding-right:16px}.brandbar small{font-size:10px}.settings{width:38px;height:38px}}

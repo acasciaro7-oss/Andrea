@@ -1,0 +1,34 @@
+name: Verifica MyFoodWorld iPhone
+on:
+  push:
+    branches: [codex/iphone-1-4]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safari:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Installa WebKit per i test
+        run: |
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install --with-deps webkit
+      - name: Verifica sintassi e flussi iPhone
+        run: |
+          node --check app.js
+          node --check sw.js
+          node --check pwa.js
+          node tests/pwa.cjs
+      - name: Conserva anteprime di verifica
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyFoodWorld-iPhone-verifica
+          path: qa/*.png
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,106 +1,77 @@
 'use strict';
-/* La mia cucina – dati salvati solo nello spazio privato dell'app Android. */
+/* MyFoodWorld iPhone – dati salvati nel browser su questo dispositivo.
+ * Preserve KEY, applicationId and asset origin across the rename. */
 const KEY='la-mia-cucina-v1';
-const DEFAULT={items:[],shop:[],people:2,meal:'Cena'};
+const DEFAULT={items:[],shop:[],people:2,meal:'Cena',diary:[],favorites:[]};
+function normalizeDb(data){const next=Object.assign(structuredClone(DEFAULT),data);next.diary=Array.isArray(next.diary)?next.diary:[];next.favorites=Array.isArray(next.favorites)?next.favorites.filter(x=>typeof x==='string'):[];return next}
 let db;
 try{
   const saved=JSON.parse(localStorage.getItem(KEY)||'null');
-  db=saved&&Array.isArray(saved.items)&&Array.isArray(saved.shop)?Object.assign({},DEFAULT,saved):structuredClone(DEFAULT);
+  db=saved&&Array.isArray(saved.items)&&Array.isArray(saved.shop)?normalizeDb(saved):structuredClone(DEFAULT);
 }catch(e){db=structuredClone(DEFAULT)}
-let page='home',category='Tutti',query='',recQuery='',review=[],scanType='prodotto',modal='',timer;
+let page='home',category='Tutti',query='',recQuery='',expiryWindow=0,review=[],scanType='prodotto',modal='',timer;
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[x]));
 const norm=v=>String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 const id=()=>String(Date.now())+Math.random().toString(36).slice(2);
-const today=()=>new Date().toISOString().slice(0,10);
+const today=()=>Food.localDate();
 function save(){localStorage.setItem(KEY,JSON.stringify(db));render()}
 function toast(s){let old=$('.toast');if(old)old.remove();let e=document.createElement('div');e.className='toast';e.textContent=s;document.body.append(e);clearTimeout(timer);timer=setTimeout(()=>e.remove(),2800)}
-const recipeData=[
-['Pasta al pomodoro','🍝','20 min',['Pasta','Passata di pomodoro'],['Metti a bollire acqua salata e cuoci la pasta.','Scalda la passata con olio e sale.','Condisci e servi.']],
-['Pasta con zucchine','🥒','25 min',['Pasta','Zucchine','Parmigiano'],['Taglia le zucchine a rondelle e falle rosolare.','Cuoci la pasta e tieni un po’ di acqua di cottura.','Mescola pasta, zucchine, acqua e parmigiano.']],
-['Frittata di zucchine','🍳','20 min',['Uova','Zucchine'],['Cuoci le zucchine a pezzetti in padella.','Sbatti le uova con sale.','Unisci e cuoci su entrambi i lati.']],
-['Omelette al formaggio','🧀','12 min',['Uova','Formaggio'],['Sbatti le uova.','Versale in padella antiaderente.','Aggiungi il formaggio, piega e servi.']],
-['Riso al tonno','🍚','20 min',['Riso','Tonno'],['Lessa il riso e scolalo.','Sgocciola il tonno.','Mescola e condisci con olio e limone se disponibile.']],
-['Pasta tonno e pomodoro','🐟','20 min',['Pasta','Tonno','Passata di pomodoro'],['Cuoci la pasta.','Scalda pomodoro e tonno in padella.','Unisci la pasta al sugo.']],
-['Insalata caprese','🍅','10 min',['Mozzarella','Pomodori'],['Affetta mozzarella e pomodori.','Disponili sul piatto.','Condisci con olio, sale e basilico se disponibile.']],
-['Toast prosciutto e formaggio','🥪','10 min',['Pane','Prosciutto','Formaggio'],['Farcisci il pane con prosciutto e formaggio.','Scalda in padella o tostapane fino a doratura.']],
-['Pasta al pesto','🌿','15 min',['Pasta','Pesto'],['Lessala pasta in acqua salata.','Diluisci il pesto con poca acqua di cottura.','Mescola e servi.']],
-['Riso con piselli','🫛','25 min',['Riso','Piselli'],['Cuoci i piselli in padella.','Lessa il riso.','Unisci e completa con olio.']],
-['Pollo al limone','🍗','25 min',['Pollo','Limone'],['Taglia il pollo a striscioline.','Rosola con un filo d’olio.','Aggiungi succo di limone e poca acqua, cuoci bene.']],
-['Patate al forno','🥔','45 min',['Patate'],['Taglia le patate a spicchi.','Condisci con olio, sale e rosmarino se disponibile.','Inforna a 200 °C finché dorate e ben cotte.']],
-['Insalata di riso','🥗','25 min',['Riso','Tonno','Mais'],['Lessa il riso e fallo raffreddare.','Aggiungi tonno e mais.','Condisci e lascia riposare.']],
-['Pasta alla carbonara','🍝','25 min',['Pasta','Uova','Guanciale','Pecorino'],['Rosola il guanciale.','Sbatti tuorli e pecorino.','Mescola con la pasta cotta lontano dal fuoco.']],
-['Pasta aglio e olio','🍝','15 min',['Pasta','Aglio','Olio'],['Cuoci la pasta.','Scalda l’olio con aglio senza bruciarlo.','Salta la pasta con poca acqua di cottura.']],
-['Uova strapazzate','🥚','10 min',['Uova'],['Sbatti le uova.','Cuocile a fiamma bassa mescolando.','Spegni quando sono cremose.']],
-['Pasta al burro','🧈','15 min',['Pasta','Burro'],['Cuoci la pasta.','Scolala conservando acqua di cottura.','Amalgama con burro e acqua.']],
-['Piadina farcita','🌯','10 min',['Piadina','Prosciutto','Formaggio'],['Scalda la piadina.','Farcisci con prosciutto e formaggio.','Chiudi e scalda brevemente.']],
-['Hamburger con patate','🍔','35 min',['Hamburger','Patate'],['Prepara le patate al forno o in padella.','Cuoci completamente l’hamburger.','Servi insieme.']],
-['Verdure saltate','🥦','20 min',['Zucchine','Carote'],['Taglia le verdure in pezzi uniformi.','Saltale in padella con olio.','Cuoci finché tenere.']],
-['Pasta ricotta e spinaci','🥬','20 min',['Pasta','Ricotta','Spinaci'],['Cuoci gli spinaci.','Lessa la pasta.','Amalgama spinaci, ricotta e pasta.']],
-['Minestrone','🍲','30 min',['Minestrone'],['Versa il minestrone in pentola con acqua secondo confezione.','Cuoci fino a quando tutte le verdure sono tenere.','Condisci con olio.']],
-['Tonno e fagioli','🫘','10 min',['Tonno','Fagioli'],['Sgocciola tonno e fagioli cotti.','Uniscili in una ciotola.','Condisci con olio e cipolla se disponibile.']],
-['Uova e pomodori','🍳','15 min',['Uova','Pomodori'],['Cuoci i pomodori tagliati in padella.','Rompi le uova direttamente nel sugo.','Copri e cuoci a piacere.']],
-['Pasta al salmone','🐟','20 min',['Pasta','Salmone','Panna'],['Cuoci la pasta.','Rosola il salmone, aggiungi la panna.','Condisci la pasta.']],
-['Risotto ai funghi','🍄','30 min',['Riso','Funghi'],['Cuoci i funghi in padella.','Tosta il riso, aggiungi acqua calda gradualmente.','Unisci i funghi e manteca.']]
-];
+const recipeData=RECIPE_CATALOG.map(r=>[r.name,r.icon,r.minutes+' min',r.ingredients.map(i=>i.name),r.steps,r]);
 const units=['pz','g','kg','ml','L','confezioni','bottiglie'];
 const locations=['Frigo','Dispensa','Freezer'];
-const staples=['olio','sale','acqua','pepe','aglio'];
-function have(ingredient){
-  const n=norm(ingredient);
-  if(staples.includes(n))return true;
-  return db.items.some(p=>Number(p.qty)>0&&(norm(p.name).includes(n)||n.includes(norm(p.name))&&norm(p.name).length>3));
-}
+function have(ingredient){return Food.available(ingredient,db.items)}
 function matched(r){return r[3].filter(x=>have(x)).length}
-function daysLeft(date){if(!date)return null;const target=new Date(date+'T12:00:00');return Math.ceil((target-Date.now())/86400000)}
-function countExp(){return db.items.filter(p=>{let n=daysLeft(p.exp);return n!==null&&n<=3}).length}
+function daysLeft(date){return Food.days(date)}
+function countExp(){return db.items.filter(p=>{let n=daysLeft(p.exp);return Number(p.qty)>0&&n!==null&&n<=3}).length}
 function emojiFor(name){let s=norm(name);return /pasta|spaghett|penne|riso/.test(s)?'🍝':/uova/.test(s)?'🥚':/latte|yogurt|formaggio|mozzarella|ricotta/.test(s)?'🧀':/carne|pollo|prosciutto/.test(s)?'🍗':/frutta|mela|banana/.test(s)?'🍎':/verdura|zucchin|pomodor|carot/.test(s)?'🥦':/pesce|tonno|salmone/.test(s)?'🐟':'🥫'}
 function nav(){
-  return '<nav class="bottom">'+[['home','🏠','Oggi'],['items','🧺','Dispensa'],['recipes','🍳','Ricette'],['shop','🛒','Spesa']].map(x=>'<button data-a="tab" data-v="'+x[0]+'" class="'+(page===x[0]?'active':'')+'"><span>'+x[1]+'</span>'+x[2]+'</button>').join('')+'</nav>';
+  return '<nav class="bottom" aria-label="Navigazione principale">'+[['home',null,'Oggi'],['items','dispensa','Dispensa'],['recipes','ricette','Ricette'],['shop','spesa','Spesa'],['nutrition','nutrizione','Nutrizione']].map(x=>'<button data-a="tab" data-v="'+x[0]+'" '+(page===x[0]?'aria-current="page" ':'')+'class="'+(page===x[0]?'active':'')+'">'+(x[1]?'<img class="nav-icon" src="brand-'+x[1]+'.webp" alt="" width="30" height="28">':'<span aria-hidden="true">⌂</span>')+x[2]+'</button>').join('')+'</nav>';
 }
 function banner(name,sub){return '<header class="simple"><h1>'+name+'</h1><p>'+sub+'</p></header>'}
 function home(){
-  const sorted=recipeData.slice().sort((a,b)=>matched(b)-matched(a));
-  return '<header class="hero"><div class="brandbar"><div class="brandicon">🥬</div><div><b>La mia cucina</b><small>La tua spesa, senza pensieri</small></div><button class="settings" data-a="settings">⚙</button></div><div class="welcome"><span class="eyebrow">Ciao, benvenuto a casa</span><h1>In cucina è tutto più semplice.</h1><p>Organizza quello che hai e scopri cosa preparare oggi.</p></div></header>'+
-  '<div class="summary"><div class="metric"><i>🥫</i><b>'+db.items.length+'</b><small>Prodotti</small></div><div class="metric"><i>⏳</i><b>'+countExp()+'</b><small>In scadenza</small></div><div class="metric"><i>🛍️</i><b>'+db.shop.filter(x=>!x.done).length+'</b><small>Da comprare</small></div></div>'+
+  const sorted=sortedRecipes(recipeData);
+  return '<header class="hero"><div class="brandbar"><img class="brandicon" src="brand-icon-light.webp" alt="" width="60" height="60"><div class="brand-name"><img class="wordmark" src="brand-wordmark.webp" alt="MyFoodWorld" width="724" height="108"><small>Your food. Your world.</small></div><button class="settings" data-a="settings" aria-label="Impostazioni">⚙</button></div><div class="welcome"><span class="eyebrow">Il tuo mondo alimentare</span><h1>Cosa cucini oggi?</h1><p>Organizza frigo, freezer e dispensa. Trova idee con quello che hai già.</p></div></header>'+
+  '<div class="summary"><div class="metric"><i>🥫</i><b>'+db.items.filter(p=>Number(p.qty)>0).length+'</b><small>Prodotti</small></div><div class="metric"><i>⏳</i><b>'+countExp()+'</b><small>In scadenza</small></div><div class="metric"><i>🛍️</i><b>'+db.shop.filter(x=>!x.done).length+'</b><small>Da comprare</small></div></div>'+
   '<section class="section"><h2>Aggiungi la spesa</h2><div class="photo"><div class="emoji">📸</div><div><h3>Una foto e via!</h3><p>Fotografa uno scontrino o un prodotto per aggiungerlo alle scorte.</p><button class="btn small" data-a="scanMenu">📸 Scatta o carica una foto</button></div></div></section>'+
-  '<section class="section"><div class="actions"><button class="tile" data-a="new"><i>➕</i><b>Nuovo prodotto</b><small>Inserimento manuale</small></button><button class="tile" data-a="tab" data-v="shop"><i>🛒</i><b>Lista della spesa</b><small>Non dimenticare nulla</small></button></div></section>'+
-  '<section class="section"><h2>Cosa cucino oggi?</h2><div class="grid2" style="margin-bottom:13px"><button class="btn '+(db.meal==='Pranzo'?'':'alt')+'" data-a="meal" data-v="Pranzo">Pranzo</button><button class="btn '+(db.meal==='Cena'?'':'alt')+'" data-a="meal" data-v="Cena">Cena</button></div>'+sorted.slice(0,3).map(recipeCard).join('')+'<button class="btn white full" data-a="tab" data-v="recipes">Vedi tutte le 26 ricette</button></section>';
+  '<section class="section"><div class="actions"><button class="tile" data-a="new"><img class="category-icon" src="brand-dispensa.webp" alt="" width="40" height="36"><b>Nuovo prodotto</b><small>Inserimento manuale</small></button><button class="tile" data-a="tab" data-v="shop"><img class="category-icon" src="brand-spesa.webp" alt="" width="40" height="36"><b>Lista della spesa</b><small>Non dimenticare nulla</small></button></div></section>'+
+  '<section class="section"><h2>Cosa cucino oggi?</h2><div class="grid2" style="margin-bottom:13px"><button class="btn '+(db.meal==='Pranzo'?'':'alt')+'" data-a="meal" data-v="Pranzo">Pranzo</button><button class="btn '+(db.meal==='Cena'?'':'alt')+'" data-a="meal" data-v="Cena">Cena</button></div>'+sorted.slice(0,3).map(recipeCard).join('')+'<button class="btn white full" data-a="tab" data-v="recipes">Esplora le '+recipeData.length+' ricette</button></section>';
 }
 function itemCard(p){
   let n=daysLeft(p.exp);let expiration=n===null?'':n<0?'Scaduto':n===0?'Scade oggi':n<4?'Scade tra '+n+' giorni':'Scade il '+p.exp;
   return '<div class="card item"><div class="symbol">'+emojiFor(p.name)+'</div><div class="item-info" data-a="edit" data-v="'+esc(p.id)+'"><strong>'+esc(p.name)+'</strong><small>'+esc(p.loc||'Dispensa')+(expiration?' · '+esc(expiration):'')+'</small></div><button class="qbtn" data-a="minus" data-v="'+esc(p.id)+'">−</button><strong style="font-size:12px">'+Number(p.qty||0)+' '+esc(p.unit||'pz')+'</strong><button class="qbtn" data-a="plus" data-v="'+esc(p.id)+'">+</button></div>';
 }
 function inventory(){
- const items=db.items.filter(p=>(category==='Tutti'||p.loc===category)&&norm(p.name).includes(norm(query))).sort((a,b)=>a.name.localeCompare(b.name));
+ const items=db.items.filter(p=>Number(p.qty)>0&&(category==='Tutti'||p.loc===category)&&norm(p.name).includes(norm(query))&&(!expiryWindow||Food.days(p.exp)!==null&&Food.days(p.exp)<=expiryWindow)).sort((a,b)=>a.name.localeCompare(b.name));
  return banner('La mia dispensa','Frigo, freezer e prodotti di casa')+
  '<section class="section"><button class="btn full" data-a="new">➕ Aggiungi un prodotto</button><div style="height:15px"></div><input class="field" id="inventorySearch" placeholder="Cerca tra i tuoi alimenti" value="'+esc(query)+'"><div style="height:12px"></div><div class="filter">'+['Tutti'].concat(locations).map(x=>'<button data-a="filter" data-v="'+x+'" class="'+(category===x?'on':'')+'">'+x+'</button>').join('')+'</div>'+
- (items.length?items.map(itemCard).join(''):'<div class="empty"><span>🧺</span><b>Nessun prodotto qui</b><p>Inizia con una foto o con l’inserimento manuale.</p></div>')+'</section>';
+ '<div class="filter" aria-label="Scadenze">'+[[0,'Tutte le scadenze'],[3,'Entro 3 giorni'],[7,'Entro 7 giorni']].map(x=>'<button data-a="expiryFilter" data-v="'+x[0]+'" class="'+(expiryWindow===x[0]?'on':'')+'">'+x[1]+'</button>').join('')+'</div>'+(items.length?items.map(itemCard).join(''):'<div class="empty"><span>🧺</span><b>Nessun prodotto qui</b><p>Inizia con una foto o con l’inserimento manuale.</p></div>')+'</section>';
 }
 function recipeCard(r){
  let n=matched(r),tot=r[3].length;
- return '<div class="card recipe" data-a="detail" data-v="'+esc(r[0])+'"><div class="symbol">'+r[1]+'</div><div class="body"><b>'+esc(r[0])+'</b><small>⏱ '+r[2]+' · '+(n===tot?'Tutti gli ingredienti disponibili':n+'/'+tot+' ingredienti disponibili')+'</small><span class="pill '+(n===tot?'':'warn')+'">'+(n===tot?'Puoi cucinarla':'Mancano '+(tot-n)+' ingredienti')+'</span></div><span>›</span></div>';
+ return '<div class="card recipe" data-a="detail" data-v="'+esc(r[0])+'"><div class="symbol">'+r[1]+'</div><div class="body"><b>'+esc(r[0])+'</b><small>⏱ '+r[2]+' · '+(n===tot?'Tutti gli ingredienti disponibili':n+'/'+tot+' ingredienti disponibili')+'</small><span class="pill '+(n===tot?'':'warn')+'">'+(n===tot?'Ingredienti presenti':'Mancano '+(tot-n)+' ingredienti')+'</span></div><span>›</span></div>';
 }
 function recipes(){
- const list=recipeData.filter(r=>norm(r[0]).includes(norm(recQuery))).sort((a,b)=>matched(b)-matched(a));
- return banner('Cosa cucino?','Ricette in base a quello che hai in casa')+'<section class="section"><label class="label">Per quante persone?</label><div class="grid2" style="margin-bottom:12px"><button class="btn white" data-a="people" data-v="-1">−</button><button class="btn alt" data-a="people" data-v="1">👥 '+db.people+' persone +</button></div><input id="recipeSearch" class="field" placeholder="Cerca una ricetta" value="'+esc(recQuery)+'"><div style="height:14px"></div>'+list.map(recipeCard).join('')+'</section>';
+ const list=recipeList();
+ return banner('Ricette',recipeData.length+' ricette e varianti casalinghe, disponibili offline')+'<section class="section"><label class="label">Per quante persone?</label><div class="row" style="margin-bottom:12px"><button class="btn white" data-a="people" data-v="-1" aria-label="Una persona in meno">−</button><strong>'+db.people+' persone</strong><button class="btn white" data-a="people" data-v="1" aria-label="Una persona in più">+</button></div>'+recipeControls()+'<p class="notice">La disponibilità controlla il nome degli alimenti, non le dosi. Olio, sale, acqua e pepe sono considerati condimenti di base: verifica di averli. I filtri non certificano l’assenza di allergeni.</p><p class="muted" id="recipeCount">'+list.length+' risultati</p>'+list.slice(0,recipeLimit).map(recipeCard).join('')+(list.length>recipeLimit?'<button class="btn white full" data-a="recipesMore">Mostra altre 30 ricette</button>':'')+(!list.length?'<div class="empty"><b>Nessuna ricetta con questi filtri</b><button class="btn small white" data-a="recipeReset">Azzera i filtri</button></div>':'')+'</section>';
 }
 function shopping(){
  return banner('Lista della spesa','Quello che manca, sempre con te')+'<section class="section"><div class="row"><input class="field" id="shopName" placeholder="Aggiungi alla lista"><button class="btn" data-a="shopAdd">+</button></div><div style="height:14px"></div>'+
  (db.shop.length?db.shop.map(p=>'<div class="card row" style="margin-bottom:8px"><label style="display:flex;align-items:center;gap:11px;flex:1;'+(p.done?'opacity:.5;text-decoration:line-through':'')+'"><input type="checkbox" data-a="shopToggle" data-v="'+esc(p.id)+'" '+(p.done?'checked':'')+' style="width:19px;height:19px;accent-color:#0b5147">'+esc(p.name)+'</label><button class="btn small alt" data-a="bought" data-v="'+esc(p.id)+'">Comprato</button><button class="btn small red" data-a="shopRemove" data-v="'+esc(p.id)+'">✕</button></div>').join(''):'<div class="empty"><span>🛒</span><b>La lista è vuota</b><p>Aggiungi gli alimenti che vuoi comprare.</p></div>')+'</section>';
 }
 function render(){
- $('#app').innerHTML=(page==='home'?home():page==='items'?inventory():page==='recipes'?recipes():shopping())+nav();
+ $('#app').innerHTML=(page==='home'?home():page==='items'?inventory():page==='recipes'?recipes():page==='nutrition'?nutritionPage():shopping())+nav();
 }
 function open(html){$('#overlay').innerHTML='<div class="scrim"><section class="sheet"><div class="handle"></div><div class="row"><h2>'+html.title+'</h2><button class="close" data-a="close">×</button></div>'+html.body+'</section></div>';modal=html.title}
 function close(){$('#overlay').innerHTML='';modal=''}
 function productForm(p){
- let editing=!!p,product=p||{id:'',name:'',qty:1,unit:'pz',loc:'Dispensa',exp:''};
+ let editing=!!(p&&p.id),product=p||{id:'',name:'',qty:1,unit:'pz',loc:'Dispensa',exp:''};
  open({title:editing?'Modifica prodotto':'Nuovo prodotto',body:
  '<label class="label">Nome alimento</label><input id="prodName" class="field" value="'+esc(product.name)+'" placeholder="Es. Latte intero">'+
  '<div class="grid2"><div><label class="label">Quantità</label><input id="prodQty" class="field" type="number" min="0" step="0.1" value="'+Number(product.qty||1)+'"></div><div><label class="label">Unità</label><select class="field" id="prodUnit">'+units.map(v=>'<option '+(v===product.unit?'selected':'')+'>'+v+'</option>').join('')+'</select></div></div>'+
  '<label class="label">Dove lo conservo?</label><select id="prodLoc" class="field">'+locations.map(v=>'<option '+(v===product.loc?'selected':'')+'>'+v+'</option>').join('')+'</select>'+
  '<label class="label">Scadenza (facoltativa)</label><input id="prodExp" type="date" class="field" value="'+esc(product.exp||'')+'"><div style="height:19px"></div>'+
+ productNutritionFields(product)+'<input type="hidden" id="prodShopId" value="'+esc(product.shopId||'')+'">'+
  '<button class="btn full" data-a="saveProduct" data-v="'+esc(product.id)+'">💾 Salva nella dispensa</button>'+(editing?'<div style="height:10px"></div><button class="btn red full" data-a="deleteProduct" data-v="'+esc(product.id)+'">Elimina prodotto</button>':'')});
 }
 function scanMenu(){
@@ -108,7 +79,7 @@ function scanMenu(){
  '<p class="muted">Scegli cosa fotografare. Potrai controllare tutti i prodotti prima di salvarli.</p>'+
  '<button class="opt" data-a="scanSelect" data-v="scontrino"><span class="sym">🧾</span><span><b>Fotografa uno scontrino</b><small>Prova a importare gli alimenti della spesa</small></span></button>'+
  '<button class="opt" data-a="scanSelect" data-v="prodotto"><span class="sym">📦</span><span><b>Fotografa un prodotto</b><small>Legge l’etichetta o il codice a barre</small></span></button>'+
- '<p class="notice">Il riconoscimento foto richiede Internet al primo utilizzo. Eventuali errori possono essere corretti prima di salvare.</p>'});
+ '<p class="notice">La lettura delle foto avviene sul dispositivo; serve Internet per scaricare il lettore. Il catalogo barcode richiede Internet per i prodotti nuovi. Eventuali errori possono essere corretti prima di salvare.</p>'});
 }
 function photoOptions(mode){
  scanType=mode;
@@ -126,7 +97,8 @@ function reviewModal(){
  '<div><label class="label">Unità</label><select class="field" id="rvUnit'+i+'">'+units.map(x=>'<option '+(x===(p.unit||'pz')?'selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+
  '<label class="label">Conservazione</label><select class="field" id="rvLoc'+i+'">'+locations.map(x=>'<option '+(x===(p.loc||'Dispensa')?'selected':'')+'>'+x+'</option>').join('')+'</select>'+
  '<label class="label">Scadenza (se leggibile)</label><input class="field" type="date" id="rvExp'+i+'" value="'+esc(p.exp||'')+'">'+
- (p.note?'<p class="muted">'+esc(p.note)+'</p>':'')+'</div>').join('')+
+ (p.note?'<p class="muted">'+esc(p.note)+'</p>':'')+(p.packageSize?'<p class="muted">Confezione: '+numText(p.packageSize.qty)+' '+esc(p.packageSize.unit)+'</p>':'')+(p.nutrition?nutritionSummary(p.nutrition)+'<details class="nutrition-editor"><summary>Correggi i valori letti</summary>'+nutrientFields('rvN'+i+'_',p.nutrition)+'<input hidden id="rvSource'+i+'" value="'+esc(p.nutrition.source)+'"></details>':'')+'</div>').join('')+
+ (lastOcrText?'<details class="nutrition-editor"><summary>Controlla e correggi il testo letto</summary><textarea class="field" id="ocrText" rows="8">'+esc(lastOcrText)+'</textarea><button class="btn small white" data-a="reparseOcr">Rileggi dal testo corretto</button></details>':'')+
  '<button class="btn full" data-a="reviewSave">Conferma e aggiungi alla dispensa</button>'});
 }
 async function loadTess(){
@@ -139,126 +111,32 @@ async function loadTess(){
  });
 }
 async function lookupBarcode(code){
- if(!/^\d{8,14}$/.test(code))throw new Error('Inserisci da 8 a 14 cifre');
- const res=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,product_name_it,quantity');
- if(!res.ok)throw new Error('Catalogo momentaneamente non disponibile');
- const data=await res.json();
- if(!data.product)throw new Error('Prodotto non trovato: inseriscilo manualmente');
- return (data.product.product_name_it||data.product.product_name||'').trim();
+ if(!/^\d{8,14}$/.test(code))throw Error('Inserisci da 8 a 14 cifre');
+ const cacheKey=KEY+'-barcode-cache';let cache={};try{cache=JSON.parse(localStorage.getItem(cacheKey)||'{}')}catch(e){}
+ if(cache[code])return cache[code];
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+ try{
+ const fields='product_name,product_name_it,quantity,product_quantity_unit,nutriments,no_nutrition_data';
+ const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields='+fields,{signal:controller.signal});
+ if(!response.ok)throw Error('Catalogo momentaneamente non disponibile');
+ const data=await response.json(),p=data.product;if(!p)throw Error('Prodotto non trovato: puoi inserirlo manualmente');
+ const name=(p.product_name_it||p.product_name||'').trim();if(!name)throw Error('Il catalogo non contiene un nome per questo codice');
+ const product={name,qty:1,unit:'confezioni',loc:OCR.location(name),exp:'',barcode:code,packageSize:Food.packageSize(p.quantity),nutrition:Food.fromOFF(p),checked:true,confidence:'media',note:'Dati Open Food Facts. Confronta nome, confezione e valori con l’etichetta.'};
+ cache[code]=product;const keys=Object.keys(cache);if(keys.length>300)delete cache[keys[0]];try{localStorage.setItem(cacheKey,JSON.stringify(cache))}catch(e){}
+ return product;
+ }catch(error){if(error.name==='AbortError')throw Error('Il catalogo non risponde. Puoi usare foto o inserimento manuale.');throw error}finally{clearTimeout(timeout)}
 }
 function waiting(text){open({title:'Sto leggendo la foto',body:'<div class="notice" id="readStatus">'+esc(text)+'</div><p class="muted">L’operazione dipende dalla qualità della foto e dalla connessione.</p>'})}
 
-const FOOD_NAMES=[
- ['ravioli','Ravioli'],['tortellini','Tortellini'],['cappelletti','Cappelletti'],['gnocchi','Gnocchi'],
- ['lasagne','Lasagne'],['pasta','Pasta'],['spaghetti','Spaghetti'],['penne','Penne'],['riso','Riso'],
- ['latte','Latte'],['yogurt','Yogurt'],['mozzarella','Mozzarella'],['ricotta','Ricotta'],['parmigiano','Parmigiano'],
- ['prosciutto','Prosciutto'],['salmone','Salmone'],['tonno','Tonno'],['pollo','Pollo'],['uova','Uova'],
- ['formaggio','Formaggio'],['burro','Burro'],['pane','Pane'],['biscotti','Biscotti'],
- ['zucchine','Zucchine'],['pomodori','Pomodori'],['patate','Patate'],['spinaci','Spinaci'],
- ['minestrone','Minestrone'],['hamburger','Hamburger'],['pizza','Pizza'],['fagioli','Fagioli'],
- ['passata','Passata'],['pesto','Pesto'],['focaccia','Focaccia'],['farina','Farina'],
- ['insalata','Insalata'],['panna','Panna'],['mais','Mais'],['carote','Carote'],['olio','Olio'],
- ['gelato','Gelato'],['piselli','Piselli'],['mortadella','Mortadella'],['guanciale','Guanciale']
-];
-function levenshtein(a,b){
- if(Math.abs(a.length-b.length)>2)return 4;
- let v=Array.from({length:b.length+1},(_,i)=>i);
- for(let i=0;i<a.length;i++){
-  let nxt=[i+1];for(let j=0;j<b.length;j++)nxt.push(Math.min(nxt[j]+1,v[j+1]+1,v[j]+(a[i]===b[j]?0:1)));
-  v=nxt;
- }return v[b.length];
-}
-function detectTerm(text){
- const words=norm(text).split(' ').filter(Boolean);
- let best=null;
- for(const [word,label] of FOOD_NAMES){
-  let hit=-1,dist=9;
-  for(let i=0;i<words.length;i++){
-   const w=words[i],d=levenshtein(w,word);
-   const permitted=word.length>=7?2:word.length>=5?1:0;
-   if(d<=permitted&&d<dist){dist=d;hit=i}
-  }
-  if(hit>=0){
-   const score=(dist===0?8:5)-(hit*.07);
-   if(!best||score>best.score)best={word,label,score};
-  }
- }return best;
-}
-function safeDate(day,month,year){
- day=Number(day);month=Number(month);year=Number(year);
- if(year<100)year+=2000;
- if(year<2020||year>2040||month<1||month>12||day<1||day>31)return '';
- const d=new Date(Date.UTC(year,month-1,day));
- return d.getUTCDate()===day&&d.getUTCMonth()===month-1?
-  String(year)+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0'):'';
-}
-function findExpiration(text){
- const all=[];
- const re=/\b([0-3]?\d)[/.:\-]([01]?\d)[/.:\-]((?:20)?\d\d)\b/g;
- let m;while((m=re.exec(text))!==null){
-  const date=safeDate(m[1],m[2],m[3]);if(!date)continue;
-  const context=norm(text.slice(Math.max(0,m.index-130),m.index));
-  let weight=0;
-  if(/consumare\s+entro|scadenza|scad[ea]|best before|use by/.test(context.slice(-75)))weight+=10;
-  if(/prodotto\s+il|confezionat|lotto/.test(context.slice(-75)))weight-=6;
-  all.push({date,weight,position:m.index});
- }
- if(!all.length)return '';
- all.sort((a,b)=>b.weight-a.weight||b.position-a.position);
- return all[0].date;
-}
-function normalizeOCRText(text){
- return String(text||'').replace(/[|¦]/g,'I').replace(/[^\S\r\n]+/g,' ').split(/\r?\n/)
- .map(x=>x.trim()).filter(x=>x.length>1&&x.length<130).join('\n');
-}
-function parsePhotoProduct(text){
- const raw=normalizeOCRText(text),lines=raw.split('\n'),top=lines.slice(0,22);
- const candidates=top.map((line,i)=>{
-  const match=detectTerm(line);
-  return match?{line,i,match,score:match.score-i*.35}:null
- }).filter(Boolean).sort((a,b)=>b.score-a.score);
- if(!candidates.length)return [];
- const best=candidates[0],kind=best.match.label;
- const all=norm(raw),has=word=>new RegExp('\\b'+word+'\\b').test(all);
- let title=kind;
- if(kind==='Ravioli'&&has('zucca'))title='Ravioli ripieni alla zucca';
- else if(kind==='Tortellini'&&has('prosciutto'))title='Tortellini al prosciutto';
- else if(/ravioli|tortellini|cappelletti|gnocchi/i.test(kind)){
-  const remainder=best.line.replace(new RegExp(best.match.word,'i'),'').trim();
-  if(remainder&&remainder.length<=26&&!/\d/.test(remainder))title=kind+' '+remainder.toLowerCase();
- }
- if(kind==='Passata'&&has('pomodoro'))title='Passata di pomodoro';
- const brand=/esselung[a4]/i.test(raw)?'Esselunga':/barill[a4]/i.test(raw)?'Barilla':
- /mulino\s*bianco/i.test(raw)?'Mulino Bianco':/galban[i1]/i.test(raw)?'Galbani':'';
- const name=brand?brand+' · '+title:title;
- const chilled=/ravioli|tortellini|pasta\s*fresca|mozzarella|ricotta|formaggio|latte|yogurt|burro|pollo|prosciutto/i.test(raw)?
-  'Frigo':'Dispensa';
- const loc=/surgelat|congelat|freezer/i.test(raw)?'Freezer':chilled;
- return [{name,qty:1,unit:'confezioni',loc,exp:findExpiration(raw),checked:true,
-  confidence:best.match.score>=8?'media':'bassa',
-  note:'Risultato automatico gratuito: controlla soprattutto nome, quantità e scadenza.'}];
-}
-function parseReceipt(text){
- const lines=normalizeOCRText(text).split('\n');
- const banned=/\b(totale|subtotale|resto|iva|pagamento|scontrino|documento|bancomat|contante|carta|acquisto|grazie|numero|operatore|cassa|sconto|reparto|imponibile|credito|punti|codice|partita|transazione|arrotondamento|fiscale|eur|cash|visa|mastercard)\b/i;
- const found=[],seen=new Set();
- for(const raw of lines){
-  if(banned.test(raw)||/^\d{2}[/.:]\d{2}[/.:]\d{2,4}/.test(raw))continue;
-  const name=raw.replace(/^\s*(?:\d{1,3}\s*[x×]\s*)?/i,'').replace(/\s+(?:€\s*)?\d{1,4}[,.]\d\d\s*[A-Z]?\s*$/,'').replace(/^\d{10,14}\s*/,'').trim();
-  if(name.length<4||name.length>65||!/[a-zàèìòù]{3}/i.test(name)||/^[\d\s.,€%-]+$/.test(name))continue;
-  const m=detectTerm(name);
-  if(!m)continue;
-  const key=norm(name);if(seen.has(key))continue;seen.add(key);
-  found.push({name,qty:1,unit:'confezioni',loc:/latte|uova|mozzarella|ravioli|fresca|yogurt|burro|salmone|prosciutto/i.test(name)?'Frigo':'Dispensa',exp:'',checked:true,confidence:'bassa',
-   note:'Nome da scontrino: conferma che sia un alimento effettivamente acquistato.'});
- }
- return found.slice(0,30);
-}
+let lastOcrText='';
+const parsePhotoProduct=text=>OCR.product(text);
+const parseReceipt=text=>OCR.receipt(text);
+const findExpiration=text=>OCR.expiration(text);
 function makeOcrCanvas(img,options){
  const width=img.naturalWidth,height=img.naturalHeight;
  const canvas=document.createElement('canvas');
  const cropY=options.crop?Math.round(height*.02):0,cropH=options.crop?Math.round(height*.70):height;
- const scale=Math.min(2,2000/Math.max(width,cropH));
+ const scale=Math.min(2,2200/width,4000/cropH);
  canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(cropH*scale));
  const ctx=canvas.getContext('2d',{willReadFrequently:true});
  ctx.drawImage(img,0,cropY,width,cropH,0,0,canvas.width,canvas.height);
@@ -280,61 +158,54 @@ function makeOcrCanvas(img,options){
 let localOcrWorkerPromise=null;
 async function getLocalOcrWorker(){
  if(!localOcrWorkerPromise){
-  localOcrWorkerPromise=loadTess().then(t=>t.createWorker(['ita','eng']));
+  localOcrWorkerPromise=loadTess().then(t=>t.createWorker('ita'));
  }
  try{return await localOcrWorkerPromise}
  catch(e){localOcrWorkerPromise=null;throw e}
 }
-async function recognizePhotoOffline(file,worker){
- const url=URL.createObjectURL(file),img=new Image();
+async function recognizePhotoOffline(file){
+ const mode=scanType,url=URL.createObjectURL(file),img=new Image();
  try{
   await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(Error('Immagine illeggibile'));img.src=url});
-  const canvas=makeOcrCanvas(img,{crop:scanType==='prodotto',boost:true});
-  const first=await worker.recognize(canvas);let full=String(first.data&&first.data.text||'');
-  let candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
-  if(!candidates.length||scanType==='prodotto'&&!findExpiration(full)){
-    if($('#readStatus'))$('#readStatus').textContent='Controllo dettagli e scadenza…';
-    const second=await worker.recognize(makeOcrCanvas(img,{crop:false,boost:false}));
-    const extra=String(second.data&&second.data.text||'');
-    full+='\n'+extra;
-    candidates=scanType==='prodotto'?parsePhotoProduct(full):parseReceipt(full);
+  const native=window.NativeKitchen&&typeof window.NativeKitchen.recognizeImage==='function';
+  const worker=native?null:await getLocalOcrWorker();
+  if(worker)await worker.setParameters({tessedit_pageseg_mode:mode==='scontrino'?'6':'11',preserve_interword_spaces:'1'});
+  const recognize=async canvas=>native?requestNativeOcr(canvas):String((await worker.recognize(canvas)).data.text||'');
+  let text=await recognize(makeOcrCanvas(img,{crop:false,boost:false}));
+  let candidates=mode==='prodotto'?parsePhotoProduct(text):parseReceipt(text);
+  if(!candidates.length||mode==='prodotto'&&!findExpiration(text)){
+   if($('#readStatus'))$('#readStatus').textContent='Controllo contrasto, dettagli e scadenza…';
+   const extra=await recognize(makeOcrCanvas(img,{crop:false,boost:true}));
+   if(mode==='prodotto'){text+='\n'+extra;candidates=parsePhotoProduct(text)}
+   else{const retry=parseReceipt(extra),seen=new Map(candidates.map(p=>[norm(p.name),p]));for(const p of retry)if(!seen.has(norm(p.name)))seen.set(norm(p.name),p);candidates=[...seen.values()];text+='\n'+extra}
   }
-  return candidates;
+  lastOcrText=text.slice(0,30000);return candidates;
  }finally{URL.revokeObjectURL(url)}
 }
+let photoBusy=false;
 async function processPhoto(file){
- if(!file)return;
- waiting('Lettura gratuita della foto in corso…');
+ if(!file)return;if(photoBusy){toast('Una foto è già in lettura');return}photoBusy=true;lastOcrText='';
+ waiting('Leggo la foto sul telefono…');let barcodeProduct=null;
  try{
   if(scanType==='prodotto'&&typeof BarcodeDetector!=='undefined'&&typeof createImageBitmap==='function'){
-   try{
-    const bitmap=await createImageBitmap(file),detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});
-    const found=await detector.detect(bitmap);bitmap.close();
-    if(found.length){
-     const name=await lookupBarcode(found[0].rawValue);
-     if(name){review=[{name,qty:1,unit:'confezioni',loc:'Dispensa',exp:'',checked:true,confidence:'media',note:'Controlla il nome e la conservazione.'}];reviewModal();return}
-    }
-   }catch(e){}
+   let bitmap;try{bitmap=await createImageBitmap(file);const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});const found=await detector.detect(bitmap);if(found.length)barcodeProduct=await lookupBarcode(found[0].rawValue)}catch(e){}finally{if(bitmap)bitmap.close()}
   }
-  const worker=await getLocalOcrWorker();
-  review=await recognizePhotoOffline(file,worker);
-  if(!review.length)throw Error('Testo non riconosciuto con sufficiente affidabilità. Scatta la foto più vicino al nome del prodotto, con buona luce, oppure inseriscilo manualmente.');
+  let recognized=[];try{recognized=await recognizePhotoOffline(file)}catch(error){if(!barcodeProduct)throw error;}
+  if(barcodeProduct){const photo=recognized[0];review=[Object.assign({},photo||{},barcodeProduct,{exp:photo?photo.exp:'',packageSize:barcodeProduct.packageSize||photo&&photo.packageSize||null,nutrition:barcodeProduct.nutrition||photo&&photo.nutrition||null})]}
+  else review=recognized;
+  if(!review.length)throw Error('Non ho individuato alimenti con sufficiente affidabilità. Prova una foto più nitida, vicina al testo, oppure inserisci manualmente.');
   reviewModal();
- }catch(err){
-  open({title:'La foto non è stata riconosciuta',body:'<p class="notice">'+esc(err.message||'Errore nella lettura')+'</p>'+
-   '<button class="btn full" data-a="scanMenu">Riprova con un’altra foto</button><div style="height:10px"></div>'+
-   '<button class="btn white full" data-a="new">Inserisci manualmente</button>'});
- }
+ }catch(error){open({title:'La foto non è stata riconosciuta',body:'<p class="notice">'+esc(error.message||'Errore nella lettura')+'</p><button class="btn full" data-a="scanMenu">Riprova con un’altra foto</button><button class="btn white full" style="margin-top:10px" data-a="new">Inserisci manualmente</button>'})}
+ finally{photoBusy=false}
 }
 function detail(name){
- const r=recipeData.find(x=>x[0]===name);if(!r)return;
- open({title:esc(r[0]),body:'<p class="muted">⏱ '+r[2]+' · '+db.people+' persone (adatta le dosi)</p><h3>Ingredienti</h3>'+
- r[3].map(n=>'<div class="card row" style="padding:10px"><span>'+esc(n)+'</span><span style="font-size:12px;color:'+(have(n)?'#478248':'#b16d28')+'">'+(have(n)?'✓ Disponibile':'Da comprare')+'</span></div>').join('')+
- '<h3>Preparazione</h3><ol class="steps">'+r[4].map(s=>'<li>'+esc(s)+'</li>').join('')+'</ol><button class="btn full" data-a="missing" data-v="'+esc(r[0])+'">🛒 Aggiungi ingredienti mancanti alla spesa</button>'});
+ const r=recipeData.find(x=>x[0]===name);if(!r)return;const m=r[5],fav=(db.favorites||[]).includes(m.id),est=recipeNutrition(r,db.people);
+ open({title:esc(r[0]),body:'<p class="muted">⏱ '+r[2]+' · '+db.people+' persone · '+esc(m.category)+'</p><button class="btn small white" data-a="favorite" data-v="'+esc(m.id)+'">'+(fav?'★ Nei preferiti':'☆ Salva nei preferiti')+'</button><h3>Ingredienti per '+db.people+' persone</h3>'+m.ingredients.map(i=>'<div class="card row" style="padding:10px"><div><strong>'+esc(i.name)+'</strong><small class="diary-meta">'+esc(formatRecipeAmount(i,db.people,m.servings))+'</small></div><span class="ingredient-status">'+(have(i.name)?'✓ Presente':'Da comprare')+'</span></div>').join('')+'<p class="notice">'+esc(m.note)+' Tempi e liquidi di cottura vanno adattati alle porzioni e agli utensili.</p><h3>Preparazione</h3><ol class="steps">'+r[4].map(step=>'<li>'+esc(step)+'</li>').join('')+'</ol>'+(est?'<p class="notice">Stima dai prodotti della dispensa, per persona: '+numText(est.totals.kcal)+' kcal · P '+numText(est.totals.protein)+' g · C '+numText(est.totals.carbs)+' g · G '+numText(est.totals.fat)+' g. Condimenti esclusi.</p>':'<p class="muted">Stima nutrizionale non disponibile: servono etichette e unità compatibili per tutti gli ingredienti.</p>')+'<button class="btn full" data-a="missing" data-v="'+esc(r[0])+'">🛒 Aggiungi ingredienti mancanti alla spesa</button><button class="btn white full" style="margin-top:10px" data-a="diaryRecipe" data-v="'+esc(r[0])+'">Registra nel diario alimentare</button>'});
 }
 function settings(){
  open({title:'Impostazioni',body:
- '<p class="notice">La mia cucina usa solo strumenti gratuiti. Le foto vengono lette localmente con OCR open source (qualità variabile); i codici a barre vengono cercati in Open Food Facts. Non utilizziamo GPT né servizi a pagamento.</p>'+
+ '<img class="settings-logo" src="brand-logo.webp" alt="MyFoodWorld. Your food. Your world." width="744" height="632"><p class="brand-version">Versione 1.4.0 · iPhone</p>'+
+ '<p class="notice">MyFoodWorld usa solo strumenti gratuiti. Su iPhone le foto vengono elaborate nel browser, dopo aver scaricato il lettore gratuito. Per i nuovi barcode serve Internet; i dati alimentari provengono da Open Food Facts. Non utilizziamo GPT né servizi a pagamento.</p>'+
  '<p class="notice">Dispensa e lista sono salvate nel telefono. Fai periodicamente il backup prima di cambiare dispositivo.</p>'+
  '<button class="opt" data-a="export"><span class="sym">📤</span><span><b>Esporta backup</b><small>Salva i prodotti in un file JSON</small></span></button>'+
  '<button class="opt" data-a="import"><span class="sym">📥</span><span><b>Importa backup</b><small>Ripristina un file JSON</small></span></button>'+
@@ -343,7 +214,7 @@ function settings(){
 }
 function addItem(p){
  const old=db.items.find(x=>norm(x.name)===norm(p.name)&&x.loc===p.loc&&x.unit===p.unit&&!x.exp);
- if(old&&!p.exp)old.qty=Number(old.qty)+Number(p.qty);
+ if(old&&!p.exp){old.qty=Number(old.qty)+Number(p.qty);if(p.nutrition)old.nutrition=p.nutrition;if(p.packageSize)old.packageSize=p.packageSize;if(p.barcode)old.barcode=p.barcode;}
  else db.items.push(Object.assign({id:id()},p));
 }
 document.addEventListener('click',async e=>{
@@ -352,6 +223,16 @@ document.addEventListener('click',async e=>{
  if(act==='close'){close();return}
  if(act==='tab'){page=v;close();render();return}
  if(act==='settings'){settings();return}
+ if(act==='expiryFilter'){expiryWindow=Number(v);render();return}
+ if(act==='recipesMore'){recipeLimit+=30;const y=scrollY;render();scrollTo(0,y);return}
+ if(act==='recipeReset'){recQuery='';recipeCategory='Tutte';recipeMode='Tutte';recipeDiet='Tutte';recipeTime=0;recipeLimit=30;render();return}
+ if(act==='favorite'){db.favorites=db.favorites||[];db.favorites=db.favorites.includes(v)?db.favorites.filter(x=>x!==v):db.favorites.concat(v);save();const r=recipeData.find(x=>x[5].id===v);if(r)detail(r[0]);return}
+ if(act==='diaryNew'){diaryForm();return}
+ if(act==='diaryProduct'){diaryForm(db.items.find(x=>x.id===v));return}
+ if(act==='diaryRecipe'){diaryForm(null,v);return}
+ if(act==='diarySave'){saveDiary();return}
+ if(act==='diaryDelete'){if(confirm('Eliminare questa registrazione?')){db.diary=(db.diary||[]).filter(x=>x.id!==v);save()}return}
+
  if(act==='new'){productForm();return}
  if(act==='edit'){const p=db.items.find(x=>x.id===v);if(p)productForm(p);return}
  if(act==='filter'){category=v;render();return}
@@ -365,7 +246,7 @@ document.addEventListener('click',async e=>{
  if(act==='saveProduct'){
   const name=$('#prodName').value.trim(),qty=Number($('#prodQty').value),loc=$('#prodLoc').value,unit=$('#prodUnit').value,exp=$('#prodExp').value;
   if(!name||qty<0||!Number.isFinite(qty)){toast('Controlla nome e quantità');return}
-  let p={id:v||id(),name,qty,loc,unit,exp};
+  const old=db.items.find(x=>x.id===v);let p=Object.assign({},old||{},{id:v||id(),name,qty,loc,unit,exp,nutrition:readNutrients('prodN',$('#prodSource').value,$('#prodBasis').value)});const pack=Number($('#prodPackQty').value);p.packageSize=pack>0?{qty:pack,unit:$('#prodPackUnit').value}:null;const shopId=$('#prodShopId').value;if(shopId)db.shop=db.shop.filter(x=>x.id!==shopId);
   let idx=db.items.findIndex(x=>x.id===v);
   if(idx>=0)db.items[idx]=p;else addItem(p);
   close();save();toast('Prodotto salvato');return
@@ -381,16 +262,17 @@ document.addEventListener('click',async e=>{
  }
  if(act==='barcode'){
   const code=String($('#barcode').value||'').trim();waiting('Cerco il prodotto…');
-  try{const name=await lookupBarcode(code);review=[{name,qty:1,checked:true}];reviewModal()}
+  try{lastOcrText='';const product=await lookupBarcode(code);review=[product];reviewModal()}
   catch(e){open({title:'Prodotto non trovato',body:'<p class="notice">'+esc(e.message)+'</p><button class="btn full" data-a="new">Inserisci manualmente</button>'})}return
  }
+ if(act==='reparseOcr'){lastOcrText=$('#ocrText').value;review=scanType==='prodotto'?parsePhotoProduct(lastOcrText):parseReceipt(lastOcrText);reviewModal();return}
  if(act==='reviewSave'){
   let done=0;
   review.forEach((x,i)=>{
    const checkbox=$('[data-review="'+i+'"]');if(!checkbox||!checkbox.checked)return;
    const name=$('#rvName'+i).value.trim(),qty=Number($('#rvQty'+i).value);
    const unit=$('#rvUnit'+i).value,loc=$('#rvLoc'+i).value,exp=$('#rvExp'+i).value;
-   if(name&&qty>0&&Number.isFinite(qty)){addItem({name,qty,unit,loc,exp});done++}
+   if(name&&qty>0&&Number.isFinite(qty)){addItem({name,qty,unit,loc,exp,nutrition:$('#rvN'+i+'_kcal')?readNutrients('rvN'+i+'_',$('#rvSource'+i).value,x.nutrition.basis):Food.cleanNutrition(x.nutrition),packageSize:x.packageSize||null,barcode:x.barcode||''});done++}
   });
   close();save();toast(done+' prodotti aggiunti');return
  }
@@ -400,12 +282,12 @@ document.addEventListener('click',async e=>{
  }
  if(act==='shopToggle'){const p=db.shop.find(x=>x.id===v);if(p){p.done=!p.done;save()}return}
  if(act==='shopRemove'){db.shop=db.shop.filter(x=>x.id!==v);save();return}
- if(act==='bought'){const p=db.shop.find(x=>x.id===v);if(!p)return;db.shop=db.shop.filter(x=>x.id!==v);productForm({id:'',name:p.name,qty:1,unit:'pz',loc:'Dispensa',exp:''});save();return}
+ if(act==='bought'){const p=db.shop.find(x=>x.id===v);if(!p)return;productForm({id:'',shopId:p.id,name:p.name,qty:1,unit:'pz',loc:'Dispensa',exp:''});return}
  if(act==='missing'){const r=recipeData.find(x=>x[0]===v);if(r)r[3].filter(x=>!have(x)).forEach(n=>{if(!db.shop.some(x=>norm(x.name)===norm(n)))db.shop.push({id:id(),name:n,done:false})});close();save();toast('Lista della spesa aggiornata');return}
  if(act==='export'){
-  const data=JSON.stringify({version:1,exportedAt:new Date().toISOString(),items:db.items,shop:db.shop,people:db.people,meal:db.meal},null,2);
+  const data=JSON.stringify({version:1,exportedAt:new Date().toISOString(),items:db.items,shop:db.shop,people:db.people,meal:db.meal,diary:db.diary||[],favorites:db.favorites||[]},null,2);
   if(window.NativeKitchen&&window.NativeKitchen.exportBackup)window.NativeKitchen.exportBackup(data);
-  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));a.download='la-mia-cucina-backup.json';a.click();URL.revokeObjectURL(a.href)}
+  else{await saveWebBackup(data)}
   return
  }
  if(act==='import'){$('#backupInput').click();return}
@@ -413,8 +295,11 @@ document.addEventListener('click',async e=>{
  if(act==='reset'&&confirm('Cancellare tutta la dispensa e la lista? Salva un backup prima di continuare.')){db=structuredClone(DEFAULT);close();save();return}
 });
 document.addEventListener('input',e=>{
+ if(e.target.id.startsWith('rvN')){const i=e.target.id.match(/^rvN(\d+)_/);if(i&&$('#rvSource'+i[1]))$('#rvSource'+i[1]).value='Inserimento manuale'}
+ if(e.target.id.startsWith('prodN')&&$('#prodSource'))$('#prodSource').value='Inserimento manuale';
+ if(e.target.id.startsWith('diaryN')&&$('#diarySource'))$('#diarySource').value='Inserimento manuale';
  if(e.target.id==='inventorySearch'){const pos=e.target.selectionStart;query=e.target.value;render();const i=$('#inventorySearch');if(i){i.focus();i.setSelectionRange(pos,pos)}}
- if(e.target.id==='recipeSearch'){const pos=e.target.selectionStart;recQuery=e.target.value;render();const i=$('#recipeSearch');if(i){i.focus();i.setSelectionRange(pos,pos)}}
+ if(e.target.id==='recipeSearch'){const pos=e.target.selectionStart;recQuery=e.target.value;recipeLimit=30;render();const i=$('#recipeSearch');if(i){i.focus();i.setSelectionRange(pos,pos)}}
 });
 document.addEventListener('keydown',e=>{
  if(e.key==='Enter'&&e.target.id==='shopName'){e.preventDefault();const name=e.target.value.trim();if(name){db.shop.push({id:id(),name,done:false});save()}}
@@ -423,8 +308,21 @@ $('#photoCamera').addEventListener('change',e=>{const file=e.target.files&&e.tar
 $('#photoGallery').addEventListener('change',e=>{const file=e.target.files&&e.target.files[0];e.target.value='';processPhoto(file)});
 $('#backupInput').addEventListener('change',async e=>{
  const file=e.target.files&&e.target.files[0];e.target.value='';if(!file)return;
- try{const data=JSON.parse(await file.text());if(!Array.isArray(data.items)||!Array.isArray(data.shop))throw Error('File non compatibile');if(!confirm('Sostituire i dati attuali con quelli del backup?'))return;db=Object.assign({},DEFAULT,data);close();save();toast('Backup importato')}
+ try{const data=JSON.parse(await file.text());if(!Array.isArray(data.items)||!Array.isArray(data.shop))throw Error('File non compatibile');if(!confirm('Sostituire i dati attuali con quelli del backup?'))return;db=normalizeDb(data);close();save();toast('Backup importato')}
  catch(err){toast('Backup non valido')}
 });
 window.nativeGoBack=function(){if(modal){close();return true}if(page!=='home'){page='home';render();return true}return false};
 render();
+
+
+document.addEventListener('change',e=>{
+ const key=e.target.id;
+ if(key==='recipeCategory'){recipeCategory=e.target.value;recipeLimit=30;render()}
+ if(key==='recipeMode'){recipeMode=e.target.value;recipeLimit=30;render()}
+ if(key==='recipeDiet'){recipeDiet=e.target.value;recipeLimit=30;render()}
+ if(key==='recipeTime'){recipeTime=Number(e.target.value);recipeLimit=30;render()}
+ if(key==='nutritionDay'){nutritionDay=e.target.value||Food.localDate();render()}
+ if(key==='prodBasis'&&$('#prodSource'))$('#prodSource').value='Inserimento manuale';
+ if(key==='diaryUnit'){Food.nutrientKeys.forEach(k=>$('#diaryN'+k).value='');$('#diarySource').value='Inserimento manuale';toast('Inserisci i valori per la nuova unità di misura')}
+ if(key==='diaryProduct'){const p=db.items.find(x=>x.id===e.target.value);diaryForm(p)}
+});

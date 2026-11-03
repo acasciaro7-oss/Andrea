@@ -1,20 +1,26 @@
 {
   "id": "./",
-  "name": "La mia cucina",
-  "short_name": "La mia cucina",
-  "description": "Organizza dispensa, frigorifero e freezer e scegli cosa cucinare",
+  "name": "MyFoodWorld",
+  "short_name": "MyFoodWorld",
+  "description": "Dispensa, frigo, freezer, 1.000 ricette, spesa e diario alimentare",
   "start_url": "./",
   "scope": "./",
   "lang": "it-IT",
   "display": "standalone",
-  "background_color": "#f7f6f0",
-  "theme_color": "#0b5147",
+  "background_color": "#f6f8fc",
+  "theme_color": "#0a1747",
   "icons": [
     {
       "src": "./icon-192.png",
       "type": "image/png",
       "sizes": "192x192",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
     }
   ]
 }
