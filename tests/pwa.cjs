@@ -1,4 +1,5 @@
-const {webkit}=require('playwright');
+const engines=require('playwright');
+const browserName=process.env.TEST_BROWSER||'webkit';
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const base=path.resolve(__dirname,'..');
 const root=fs.existsSync(path.join(base,'dist'))?path.join(base,'dist'):base;
@@ -16,7 +17,7 @@ const server=http.createServer((req,res)=>{
 });
 (async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port+'/Andrea/';
- const browser=await webkit.launch({headless:true});const errors=[];
+ const browser=await engines[browserName].launch({headless:true});const errors=[];
  try{
   const context=await browser.newContext({viewport:{width:390,height:844},locale:'it-IT',isMobile:true,hasTouch:true,acceptDownloads:true});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -60,15 +61,22 @@ const server=http.createServer((req,res)=>{
   assert.match(ocrText.toUpperCase(),/RAVIOLI/);assert.match(ocrText.toUpperCase(),/ZUCCA/);
   assert.equal(await app.evaluate(text=>parsePhotoProduct(text).length,ocrText),1);
   console.log('PASS: actual browser OCR on a synthetic Italian label:',JSON.stringify(ocrText));
-  await context.setOffline(true);await app.reload();
+  // WebKit's Playwright offline flag rejects even literal SW responses (#42775).
+  // Stop the actual origin instead; Chromium additionally exercises setOffline.
+  await new Promise(resolve=>{server.close(resolve);server.closeAllConnections()});
+  assert.equal(server.listening,false);
+  await assert.rejects(fetch(url));
+  if(browserName==='chromium')await context.setOffline(true);
+  const offlineResponse=await app.reload();
+  assert.equal(offlineResponse.status(),200);assert.equal(offlineResponse.fromServiceWorker(),true);
   assert.equal(await app.title(),'MyFoodWorld');assert.equal(await app.evaluate(()=>db.diary.length),1);
   await tab('recipes');assert.equal(await app.evaluate(()=>RECIPE_CATALOG.length),1000);
   await app.locator('#recipeSearch').fill('zucca');assert((await app.locator('.recipe').count())>0);
   await tab('items');assert.match(await app.locator('.card.item').textContent(),/Pasta/);
   assert.equal(await app.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await context.setOffline(false);
+  if(browserName==='chromium')await context.setOffline(false);
   const output=path.join(base,'qa');fs.mkdirSync(output,{recursive:true});await app.screenshot({path:path.join(output,'iphone-dispensa.png')});await tab('nutrition');await app.screenshot({path:path.join(output,'iphone-nutrizione.png')});
   assert.deepEqual(errors,[]);
-  console.log('PASS: WebKit mobile upgrade from legacy PWA, same identity/storage, cache isolation, 1000 recipes, nutrition diary, backup share and offline reload.');
+  console.log('PASS: '+browserName+' mobile upgrade from legacy PWA, same identity/storage, cache isolation, 1000 recipes, nutrition diary, backup share and origin unavailable reload (Chromium also network emulation).');
  }catch(error){const p=browser.contexts().flatMap(c=>c.pages()).at(-1);if(p){try{console.log('Failure state:',await p.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return {url:location.href,title:document.title,controller:navigator.serviceWorker.controller&&navigator.serviceWorker.controller.state,active:r&&r.active&&r.active.state,waiting:r&&r.waiting&&r.waiting.state,caches:await caches.keys(),body:document.body.innerText.slice(0,1200)}}));const dir=path.join(base,'qa');fs.mkdirSync(dir,{recursive:true});await p.screenshot({path:path.join(dir,'failure.png')})}catch(e){}}throw error}finally{await browser.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});

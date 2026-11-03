@@ -6,7 +6,12 @@ on:
 permissions:
   contents: read
 jobs:
-  safari:
+  browser:
+    strategy:
+      matrix:
+        engine: [webkit, chromium]
+    env:
+      TEST_BROWSER: ${{ matrix.engine }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -14,10 +19,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Installa WebKit per i test
+      - name: Installa browser per i test
         run: |
           npm install --no-save --package-lock=false playwright@1.62.1
-          npx playwright install --with-deps webkit
+          npx playwright install --with-deps ${{ matrix.engine }}
       - name: Verifica sintassi e flussi iPhone
         run: |
           node --check app.js
@@ -28,7 +33,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MyFoodWorld-iPhone-verifica
+          name: MyFoodWorld-iPhone-${{ matrix.engine }}
           path: qa/*.png
           if-no-files-found: ignore
           retention-days: 7
