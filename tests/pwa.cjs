@@ -29,7 +29,7 @@ const server=http.createServer((req,res)=>{
   await app.waitForFunction(()=>document.title==='MyFoodWorld');
   await app.waitForSelector('#appUpdate button',{timeout:60000});
   await app.locator('#appUpdate button').click();
-  await app.waitForFunction(()=>navigator.serviceWorker.controller&&navigator.serviceWorker.controller.state==='activated');
+  console.log('Update state:',await app.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return {url:location.href,controller:navigator.serviceWorker.controller&&navigator.serviceWorker.controller.state,active:r&&r.active&&r.active.state,waiting:r&&r.waiting&&r.waiting.state,caches:await caches.keys()}}));
   await app.waitForFunction(()=>typeof RECIPE_CATALOG!=='undefined'&&RECIPE_CATALOG.length===1000);
   await app.waitForFunction(async()=>!(await caches.keys()).includes('cucina-offline-v3-free-ocr'));
   assert.deepEqual(await app.evaluate(()=>JSON.parse(localStorage.getItem('la-mia-cucina-v1'))),seed);
@@ -70,5 +70,5 @@ const server=http.createServer((req,res)=>{
   const output=path.join(base,'qa');fs.mkdirSync(output,{recursive:true});await app.screenshot({path:path.join(output,'iphone-dispensa.png')});await tab('nutrition');await app.screenshot({path:path.join(output,'iphone-nutrizione.png')});
   assert.deepEqual(errors,[]);
   console.log('PASS: WebKit mobile upgrade from legacy PWA, same identity/storage, cache isolation, 1000 recipes, nutrition diary, backup share and offline reload.');
- }finally{await browser.close();await new Promise(r=>server.close(r))}
+ }catch(error){const p=browser.contexts().flatMap(c=>c.pages()).at(-1);if(p){try{console.log('Failure state:',await p.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return {url:location.href,title:document.title,controller:navigator.serviceWorker.controller&&navigator.serviceWorker.controller.state,active:r&&r.active&&r.active.state,waiting:r&&r.waiting&&r.waiting.state,caches:await caches.keys(),body:document.body.innerText.slice(0,1200)}}));const dir=path.join(base,'qa');fs.mkdirSync(dir,{recursive:true});await p.screenshot({path:path.join(dir,'failure.png')})}catch(e){}}throw error}finally{await browser.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});
