@@ -1,0 +1,15 @@
+.bottom button{min-width:0;flex:1;font-size:10px}
+.bottom{gap:0}
+.nutrition-editor{border:1px solid var(--line);border-radius:14px;margin:16px 0;padding:14px}
+.nutrition-editor summary{cursor:pointer;font-weight:750}
+.nutri-values{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}
+.nutri-values>div{padding:12px 6px;background:#edf3fb;border-radius:14px;text-align:center}
+.nutri-values b{display:block;font-size:21px}
+.nutri-values small{display:block;font-size:10px;color:#53627a}
+.diary-meta{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.ingredient-status{font-size:11px;color:#53627a;white-space:nowrap}
+.recipe .body{overflow-wrap:anywhere}
+.recipe .body small{font-size:12px}
+.photo .emoji{font-size:42px}
+.metric small{color:#53627a}
+@media(max-width:360px){.nutri-values{grid-template-columns:repeat(2,minmax(0,1fr))}.bottom .nav-icon{width:26px;height:26px}.bottom button{font-size:9px}}
