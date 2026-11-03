@@ -48,7 +48,7 @@ const server=http.createServer((req,res)=>{
   assert.equal(await app.evaluate(()=>Food.portion(db.diary[0].nutrition,150,'g').protein),null);
   // Test Safari-compatible file sharing without transmitting the backup.
   await app.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.__sharedName=data.files[0].name;window.__sharedBackup=JSON.parse(await data.files[0].text())}})});
-  await tab('home');await app.locator('[data-a="settings"]').click();await app.locator('[data-a="export"]').click();
+  await tab('home');await app.locator('[data-a="settings"]').click();await app.locator('[data-a="export"]').click();await app.waitForFunction(()=>window.__sharedBackup&&window.__sharedBackup.diary);
   assert.equal(await app.evaluate(()=>window.__sharedName),'myfoodworld-backup.json');assert.equal(await app.evaluate(()=>window.__sharedBackup.diary.length),1);
   assert.deepEqual(await app.evaluate(()=>window.__sharedBackup.items),seed.items);
   await app.locator('[data-a="close"]').click();
