@@ -1,0 +1,59 @@
+<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102946"><title>MyFoodWorld · Feedback Beta</title>
+<style>
+:root{color-scheme:light;--navy:#102946;--mint:#d7faf0;--green:#137c5d;--ink:#1c2d43;--line:#dce4ec}*{box-sizing:border-box}
+body{margin:0;background:#f4f7fb;color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;line-height:1.4}
+header{padding:30px 22px 46px;text-align:center;background:linear-gradient(120deg,#102946,#176878);color:white}
+header h1{margin:0;font-size:30px;letter-spacing:-1px}header p{margin:7px auto 0;max-width:460px}
+main{max-width:620px;padding:0 16px 45px;margin:-24px auto 0}.card{background:white;box-shadow:0 6px 25px #17395b0e;border-radius:20px;padding:20px;margin-bottom:13px}
+label.title{font-size:15px;font-weight:750;display:block;margin-bottom:9px}.small{font-size:13px;color:#637388}.hint{margin:0 0 12px;color:#64758c;font-size:13px}
+select,textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;background:#fff;color:var(--ink)}
+textarea{min-height:93px;resize:vertical}.choice{display:flex;gap:8px;align-items:center;padding:9px 0;border-top:1px solid #f2f5f8}.choice input{width:17px;height:17px;accent-color:var(--green)}
+.scale{display:flex;gap:6px}.scale label{flex:1;text-align:center;background:#eff6f7;border:1px solid #dce9e8;border-radius:11px;padding:10px 0;cursor:pointer}
+.scale input{position:absolute;opacity:0}.scale label:has(input:checked){background:#126b61;color:white;border-color:#126b61}
+button{font:inherit;font-weight:700;cursor:pointer;border:0;padding:14px;border-radius:13px;background:#10755c;color:white;width:100%;margin-top:8px}
+button.secondary{background:#e5eef5;color:#183651}.smallprint{color:#64758c;font-size:12px;line-height:1.5}
+#status{font-size:13px;margin:12px 0;color:#126b61;font-weight:650}a{color:#09695d}
+</style></head><body>
+<header><h1>🌍 MyFoodWorld</h1><p><strong>Beta · Your food. Your world.</strong></p><p>Ci aiuti a migliorare l'app? Bastano 3 minuti.</p></header>
+<main>
+<form id="survey">
+<div class="card"><p class="smallprint">Questionario volontario per test di prodotto. Non inserire dati sanitari, foto di pasti, contatti o informazioni personali. Le risposte <b>non vengono inviate automaticamente</b>: scegli tu se condividerle tramite WhatsApp o un'altra app. Non è una valutazione nutrizionale.</p></div>
+<div class="card"><label class="title" for="device">1. Su quale dispositivo l'hai provata? *</label><select id="device" required><option value="">Seleziona</option><option>Android</option><option>iPhone</option><option>Altro</option></select></div>
+<div class="card"><label class="title" for="duration">2. Da quanto tempo la utilizzi? *</label><select id="duration" required><option value="">Seleziona</option><option>Primo utilizzo</option><option>2-3 giorni</option><option>4-7 giorni</option><option>Più di una settimana</option></select></div>
+<div class="card"><label class="title">3. Quanto è semplice da usare? *</label><p class="hint">1 = difficile, 5 = semplicissima</p><div class="scale" id="ease"></div></div>
+<div class="card"><label class="title">4. Quali funzioni hai provato?</label><div id="used"></div></div>
+<div class="card"><label class="title" for="useful">5. Quale funzione ti è stata più utile? *</label><select id="useful" required><option value="">Seleziona</option><option>Dispensa e scorte</option><option>Scadenze</option><option>Ricette suggerite</option><option>Scansione scontrini/prodotti</option><option>Lista della spesa</option><option>Diario nutrizionale</option><option>Nessuna finora</option></select></div>
+<div class="card"><label class="title">6. I suggerimenti delle ricette corrispondono a ciò che hai in casa?</label><div id="accuracy"></div></div>
+<div class="card"><label class="title">7. Hai incontrato problemi?</label><div id="problems"></div><label for="detail" class="title" style="margin-top:12px">Descrivi il problema (senza dati personali)</label><textarea id="detail" maxlength="700" placeholder="Es. durante la scansione di uno scontrino la quantità era sbagliata…"></textarea></div>
+<div class="card"><label class="title">8. Quanto è probabile che tu continui a utilizzarla?</label><div class="scale" id="continue"></div></div>
+<div class="card"><label class="title">9. Quali funzioni Premium ti interesserebbero?</label><div id="premium"></div></div>
+<div class="card"><label class="title" for="improve">10. Cosa miglioreresti per prima cosa?</label><textarea id="improve" maxlength="700" placeholder="Un suggerimento concreto per migliorare MyFoodWorld…"></textarea></div>
+<div class="card"><button type="submit">Condividi le risposte</button><button type="button" id="copy" class="secondary">Copia le risposte</button><p id="status" role="status"></p><p class="smallprint">Le risposte vengono preparate sul tuo dispositivo. Scegli tu il destinatario: questa pagina non salva né trasmette informazioni a un server.</p></div>
+</form></main>
+<script>
+const features=['Dispensa e scorte','Scadenze','Ricette','OCR scontrini o prodotti','Lista della spesa','Diario nutrizionale'];
+function scale(id){document.getElementById(id).innerHTML=[1,2,3,4,5].map(n=>'<label><input type="radio" name="'+id+'" value="'+n+'" '+(id==='ease'&&n===3?'':'')+'>'+n+'</label>').join('')}
+scale('ease');scale('continue');
+function check(id,opts){document.getElementById(id).innerHTML=opts.map((x,i)=>'<label class="choice"><input type="checkbox" name="'+id+'" value="'+x+'"><span>'+x+'</span></label>').join('')}
+check('used',features);
+check('problems',['Nessun problema','Installazione o accesso','Scansione OCR','Ricette non pertinenti','Scadenze o quantità errate','Calorie o macro poco chiari','App lenta o bloccata']);
+check('premium',['Ricette per esigenze alimentari','Piano pasti settimanale','Diario nutrizionale avanzato','Dispensa familiare condivisa','Notifiche personalizzate']);
+document.getElementById('accuracy').innerHTML=['Sì, spesso','A volte','Raramente','Non ho provato'].map(x=>'<label class="choice"><input type="radio" name="accuracy" value="'+x+'"><span>'+x+'</span></label>').join('');
+const val=id=>document.getElementById(id).value||'Non indicato';
+const sel=name=>Array.from(document.querySelectorAll('[name="'+name+'"]:checked')).map(x=>x.value).join(', ')||'Non indicato';
+function report(){
+ if(val('device')==='Non indicato'||val('duration')==='Non indicato'||sel('ease')==='Non indicato'||val('useful')==='Non indicato'){alert('Compila le domande 1, 2, 3 e 5 prima di inviare.');return null}
+ return 'MYFOODWORLD BETA — FEEDBACK\n'+[
+ 'Dispositivo: '+val('device'),'Utilizzo: '+val('duration'),'Facilità (1-5): '+sel('ease'),
+ 'Funzioni provate: '+sel('used'),'Più utile: '+val('useful'),'Ricette pertinenti: '+sel('accuracy'),
+ 'Problemi: '+sel('problems'),'Dettagli: '+val('detail'),'Continuerà a usare (1-5): '+sel('continue'),
+ 'Premium interessanti: '+sel('premium'),'Da migliorare: '+val('improve')
+ ].join('\n');
+}
+async function copy(){const t=report();if(!t)return;try{await navigator.clipboard.writeText(t);document.getElementById('status').textContent='Risposte copiate. Incollale su WhatsApp.'}catch(e){const a=document.createElement('textarea');a.value=t;document.body.append(a);a.select();document.execCommand('copy');a.remove();document.getElementById('status').textContent='Risposte pronte: incollale su WhatsApp.'}}
+document.getElementById('copy').onclick=copy;
+document.getElementById('survey').onsubmit=async e=>{e.preventDefault();const t=report();if(!t)return;
+ if(navigator.share){try{await navigator.share({title:'MyFoodWorld Beta',text:t});document.getElementById('status').textContent='Grazie per il feedback!';return}catch(e){if(e.name==='AbortError')return}}
+ await copy()};
+</script></body></html>
