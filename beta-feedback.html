@@ -43,7 +43,7 @@ document.getElementById('accuracy').innerHTML=['Sì, spesso','A volte','Rarament
 const val=id=>document.getElementById(id).value||'Non indicato';
 const sel=name=>Array.from(document.querySelectorAll('[name="'+name+'"]:checked')).map(x=>x.value).join(', ')||'Non indicato';
 function report(){
- if(!val('device')||val('device')==='Non indicato'||val('duration')==='Non indicato'||!sel('ease')||val('useful')==='Non indicato'){alert('Compila le domande 1, 2, 3 e 5 prima di inviare.');return null}
+ if(val('device')==='Non indicato'||val('duration')==='Non indicato'||sel('ease')==='Non indicato'||val('useful')==='Non indicato'){alert('Compila le domande 1, 2, 3 e 5 prima di inviare.');return null}
  return 'MYFOODWORLD BETA — FEEDBACK\n'+[
  'Dispositivo: '+val('device'),'Utilizzo: '+val('duration'),'Facilità (1-5): '+sel('ease'),
  'Funzioni provate: '+sel('used'),'Più utile: '+val('useful'),'Ricette pertinenti: '+sel('accuracy'),
