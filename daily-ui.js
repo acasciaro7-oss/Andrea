@@ -4,7 +4,7 @@ let recipeDifficulty='Tutte',recipeExclude='',inventoryOrder='expiry',lastUndo=n
 let barcodeOnly=false;
 const baseProductForm=productForm,baseRecipeControls=recipeControls,baseSettings=settings;
 function dueLabel(p){const d=Food.days(p.exp);return d===null?'Scadenza non inserita':d<0?'Scaduto da '+(-d)+' giorni':d===0?'Scade oggi':d===1?'Scade domani':'Scade tra '+d+' giorni'}
-function amountLabel(q,u){return numText(q)+' '+esc(u)}
+function amountLabel(q,u){return new Intl.NumberFormat('it-IT',{maximumFractionDigits:4}).format(Number(q))+' '+esc(u)}
 function allShopping(){
  const rows=db.shop.filter(x=>!x.done).map(p=>({...p,origin:'manual'}));
  for(const n of Kitchen.planNeeds(db.plan||[],RECIPE_CATALOG,db.items).filter(n=>n.missing>0)){
