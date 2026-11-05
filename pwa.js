@@ -1,8 +1,8 @@
 'use strict';
-async function saveWebBackup(json){
- const name='myfoodworld-backup.json',file=new File([json],name,{type:'application/json'});
+async function saveWebDocument(json,name){
+ const file=new File([json],name,{type:'application/json'});
  if(navigator.canShare&&navigator.share&&navigator.canShare({files:[file]})){
-  try{await navigator.share({files:[file],title:'Backup MyFoodWorld'});return}
+  try{await navigator.share({files:[file],title:'MyFoodWorld'});return}
   catch(error){if(error.name==='AbortError')return;}
  }
  const a=document.createElement('a'),url=URL.createObjectURL(file);a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
@@ -32,3 +32,6 @@ if('serviceWorker' in navigator){
   }catch(error){}
  });
 }
+
+
+async function saveWebBackup(json){return saveWebDocument(json,'myfoodworld-backup.json')}

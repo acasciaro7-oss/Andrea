@@ -51,9 +51,10 @@ const Food=(()=>{
  }
  function packageSize(text){
   const s=String(text||'').replace(/,/g,'.');const m=s.match(/(?:\b(\d{1,2})\s*[x×]\s*)?(\d+(?:\.\d+)?)\s*(kg|ml|cl|g|l)\b/i);
-  if(!m)return null;const multiplier=Number(m[1]||1),q=Number(m[2]),u=m[3].toLowerCase();
+  if(!m){const pieces=s.match(/\b(\d{1,3})\s*(?:pz|pezzi)\b/i);return pieces?{qty:Number(pieces[1]),unit:'pz'}:null}const multiplier=Number(m[1]||1),q=Number(m[2]),u=m[3].toLowerCase();
   const qty=q*multiplier*(u==='kg'||u==='l'?1000:u==='cl'?10:1);if(!(qty>0&&qty<=100000))return null;
   return {qty,unit:['ml','cl','l'].includes(u)?'ml':'g'};
  }
  return {norm,matches,available,days,localDate,numeric,cleanNutrition,fromOFF,portion,packageSize,nutrientKeys};
 })();
+

@@ -47,24 +47,31 @@ const OCR=(()=>{
  }
  function receipt(text){
   const banned=/\b(totale|tot\.?|subtotale|resto|iva|pagamento|scontrino|documento|bancomat|contante|carta|grazie|operatore|cassa|sconto|imponibile|credito|punti|partita|transazione|arrotondamento|fiscale|visa|mastercard|telefono|tel|eur|euro)\b/i;
-  const out=[],seen=new Map();
+  const rawProducts=[];
   for(const raw of lines(text)){
-   if(banned.test(raw)||raw.length>110||/^\d\d[/.-]\d\d[/.-]\d{2,4}/.test(raw))continue;
+   const previous=rawProducts[rawProducts.length-1];
    const weight=raw.match(/^\s*(\d+(?:[,.]\d+)?)\s*(kg|g)\s*[x×]/i);
-   if(weight&&out.length){out[out.length-1].qty=Number(weight[1].replace(',','.'));out[out.length-1].unit=weight[2].toLowerCase();continue;}
-   const prefix=raw.match(/^\s*(\d{1,2})\s*[x×]\s*/i);
-   const count=prefix?Number(prefix[1]):1;
-   const name=raw.replace(/^\s*\d{1,2}\s*[x×]\s*/i,'').replace(/^\d{8,14}\s+/,'').replace(/\s+(?:€\s*)?\d{1,4}[,.]\d{2}\s*[A-Z]?\s*$/,'').replace(/\s+€\s*$/,'').trim();
-   if(name.length<4||name.length>85||!/[a-zàèéìòù]{3}/i.test(name)||/^[\d\s.,€%-]+$/.test(name))continue;
+   if(weight&&previous){previous.qty=Number(weight[1].replace(',','.'));previous.unit=weight[2].toLowerCase();continue;}
+   const countLine=raw.match(/^\s*(\d{1,2})\s*[x×]\s*(?:€\s*)?\d+[,.]\d{2}(?:\s|$)/i);
+   if(countLine&&previous){previous.qty=Number(countLine[1]);continue;}
+   if(banned.test(raw)||raw.length>110||/^\d\d[/.-]\d\d[/.-]\d{2,4}/.test(raw))continue;
+   const prefix=raw.match(/^\s*(\d{1,2})\s*[x×]\s*/i),suffix=raw.match(/\s+(\d{1,2})\s*[x×]\s*\d+[,.]\d{2}(?:\s|$)/i);
+   const count=prefix?Number(prefix[1]):suffix?Number(suffix[1]):1;
+   let cleaned=raw.replace(/^\s*\d{1,2}\s*[x×]\s*/i,'');
+   if(suffix)cleaned=cleaned.slice(0,suffix.index);
+   const name=cleaned.replace(/^\d{8,14}\s+/,'').replace(/\s+(?:€\s*)?\d{1,4}[,.]\d{2}\s*[A-Z]?\s*$/,'').replace(/\s+€\s*$/,'').trim();
+   if(name.length<4||name.length>85||!/[a-zàèéìòù]{3}/i.test(name)||/^[\d\s.,€%-]+$/.test(name)||count<=0)continue;
    const match=detect(name);if(!match&&!/\d[,.]\d{2}/.test(raw))continue;
-   const key=norm(name);if(seen.has(key)){seen.get(key).qty+=count;continue;}
-   const p={name,qty:count,unit:'confezioni',loc:location(name),exp:'',packageSize:Food.packageSize(name),nutrition:null,checked:!!match,confidence:match&&match.exact?'media':'bassa',note:match?'Controlla descrizione e quantità lette dallo scontrino. La scadenza non viene ricavata dalla data di acquisto.':'Voce non riconosciuta: selezionala solo se è un alimento acquistato.'};
-   out.push(p);seen.set(key,p);
-  }return out.slice(0,120);
+   rawProducts.push({name,qty:count,unit:'confezioni',loc:location(name),exp:'',packageSize:Food.packageSize(name),nutrition:null,checked:!!match,confidence:match&&match.exact?'media':'bassa',note:match?'Controlla descrizione e quantità lette dallo scontrino. La scadenza non viene ricavata dalla data di acquisto.':'Voce non riconosciuta: selezionala solo se è un alimento acquistato.'});
+  }
+  const seen=new Map();for(const p of rawProducts){const key=norm(p.name)+'|'+p.unit+'|'+JSON.stringify(p.packageSize);if(seen.has(key))seen.get(key).qty=Kitchen.rounded(seen.get(key).qty+p.qty);else seen.set(key,p)}
+  return [...seen.values()].slice(0,120);
  }
+
  return {detect,location,expiration,nutrition,product,receipt};
 })();
 
 const nativeOcrPending=new Map();
 window.onNativeOcr=(requestId,text,error)=>{const pending=nativeOcrPending.get(requestId);if(!pending)return;clearTimeout(pending.timeout);nativeOcrPending.delete(requestId);error?pending.reject(Error(error)):pending.resolve(text)};
 function requestNativeOcr(canvas){return new Promise((resolve,reject)=>{const requestId='ocr_'+Date.now()+'_'+Math.random().toString(36).slice(2);const timeout=setTimeout(()=>{nativeOcrPending.delete(requestId);reject(Error('Il lettore non risponde. Riprova con una foto più piccola.'))},45000);nativeOcrPending.set(requestId,{resolve,reject,timeout});try{window.NativeKitchen.recognizeImage(canvas.toDataURL('image/jpeg',.9).split(',')[1],requestId)}catch(error){clearTimeout(timeout);nativeOcrPending.delete(requestId);reject(error)}})}
+
