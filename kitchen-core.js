@@ -17,7 +17,7 @@ const Kitchen=(()=>{
  function needs(ingredients,items){
   const remaining=new Map(items.map(p=>[p.id,stock(p)?.qty||0]));
   return ingredients.map(i=>{
-   const want=measure(i.qty,i.unit),lots=ordered(items).filter(p=>Food.matches(i.name,p.name));
+   const want=measure(i.qty,i.unit),lots=ordered(items).filter(p=>Food.productMatches(i.name,p));
    let left=want?want.qty:Number(i.qty),allocations=[];
    if(want)for(const p of lots){const s=stock(p);if(!s||s.unit!==want.unit)continue;const used=Math.min(remaining.get(p.id)||0,left);if(used>0){allocations.push({id:p.id,qty:used,unit:s.unit});left=rounded(left-used);remaining.set(p.id,rounded(remaining.get(p.id)-used))}}
    const uncertain=lots.some(p=>{const s=stock(p);return !s||!want||s.unit!==want.unit});
@@ -33,10 +33,11 @@ const Kitchen=(()=>{
  function sameLot(a,b){
   const identity=p=>p.barcode?'code:'+p.barcode:'name:'+Food.norm(p.name);
   return identity(a)===identity(b)&&Food.norm(a.name)===Food.norm(b.name)&&a.loc===b.loc&&a.unit===b.unit&&(a.exp||'')===(b.exp||'')&&
-   JSON.stringify(a.packageSize||null)===JSON.stringify(b.packageSize||null)&&JSON.stringify(a.nutrition||null)===JSON.stringify(b.nutrition||null)&&
+   (a.ingredientKey||'')===(b.ingredientKey||'')&&JSON.stringify(a.portionSize||null)===JSON.stringify(b.portionSize||null)&&JSON.stringify(a.packageSize||null)===JSON.stringify(b.packageSize||null)&&JSON.stringify(a.nutrition||null)===JSON.stringify(b.nutrition||null)&&
    (a.allergens||'')===(b.allergens||'')&&(a.traces||'')===(b.traces||'')&&(a.opened||'')===(b.opened||'')&&Number(a.minQty||0)===Number(b.minQty||0);
  }
  function consume(p,amount,unit){
+  if(unit==='porzioni'){if(!p.portionSize||!(p.portionSize.qty>0))return null;return consume(p,amount*p.portionSize.qty,p.portionSize.unit)}
   let delta;if(unit===p.unit)delta=amount;else{const s=stock(p),a=measure(amount,unit);if(!s||!a||s.unit!==a.unit)return null;delta=Number(p.qty)*a.qty/s.qty}
   if(!(amount>0)||!Number.isFinite(delta)||delta>Number(p.qty)+.00001)return null;
   return rounded(Math.max(0,Number(p.qty)-delta));
@@ -53,6 +54,7 @@ const Kitchen=(()=>{
   if(!data||typeof data!=='object'||!Array.isArray(data.items)||!Array.isArray(data.shop))throw Error('Il file non contiene dispensa e spesa');
   if(data.items.length>20000||data.shop.length>20000)throw Error('Il backup contiene troppe voci');
   for(const p of data.items)if(!p||typeof p.name!=='string'||!p.name.trim()||!Number.isFinite(Number(p.qty))||Number(p.qty)<0||!['pz','g','kg','ml','L','confezioni','bottiglie'].includes(p.unit)||!validDate(p.exp))throw Error('Un prodotto contiene dati non validi');
+  for(const p of data.items){if(p.portionSize&&(!Number.isInteger(p.portionSize.count)||p.portionSize.count<1||p.portionSize.count>1000||!(p.portionSize.qty>0)||!['g','ml','pz'].includes(p.portionSize.unit)))throw Error('Porzioni della confezione non valide');if(p.ingredientKey!==undefined&&typeof p.ingredientKey!=='string')throw Error('Ingrediente non valido')}
   for(const p of data.shop)if(!p||typeof p.name!=='string'||!p.name.trim())throw Error('Una voce della spesa non è valida');
   if(data.diary!==undefined&&(!Array.isArray(data.diary)||data.diary.some(p=>!p||typeof p.name!=='string'||!p.date||!validDate(p.date)||!(Number(p.amount)>0)||!['g','ml'].includes(p.unit))))throw Error('Il diario contiene dati non validi');
   if(data.plan!==undefined&&(!Array.isArray(data.plan)||data.plan.length>1000||data.plan.some(p=>!p||typeof p.recipeId!=='string'||!Number.isInteger(p.servings)||p.servings<1||p.servings>12||!p.date||!validDate(p.date))))throw Error('Il piano contiene dati non validi');

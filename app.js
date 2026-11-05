@@ -34,7 +34,7 @@ function save(){
   if(storageProblem&&before){throw Error('Prima conserva i dati illeggibili dalle impostazioni o importa un backup valido');}
   const next=JSON.stringify(db);
   if(before&&before!==next){localStorage.setItem(KEY+'-previous',before);lastUndo=before;}
-  localStorage.setItem(KEY,next);render();return true;
+  localStorage.setItem(KEY,next);render();if(typeof syncExpiryNotifications==='function')syncExpiryNotifications();return true;
  }catch(error){
   if(before)try{db=normalizeDb(Kitchen.validate(JSON.parse(before)))}catch(ignored){}
   render();toast('Modifica non salvata: '+error.message);return false;
@@ -87,7 +87,7 @@ function render(){
  $('#app').innerHTML=(storageProblem?'<section class="section"><p class="notice">'+esc(storageProblem)+'</p><button class="btn" data-a="settings">Recupera dati</button></section>':'')+(page==='home'?home():page==='items'?inventory():page==='recipes'?recipes():page==='nutrition'?nutritionPage():shopping())+nav();
 }
 function open(html){$('#overlay').innerHTML='<div class="scrim"><section class="sheet"><div class="handle"></div><div class="row"><h2>'+html.title+'</h2><button class="close" data-a="close">×</button></div>'+html.body+'</section></div>';modal=html.title}
-function close(){$('#overlay').innerHTML='';modal=''}
+function close(){if(typeof stopLiveScan==='function')stopLiveScan();$('#overlay').innerHTML='';modal=''}
 function productForm(p){
  let editing=!!(p&&p.id),product=p||{id:'',name:'',qty:1,unit:'pz',loc:'Dispensa',exp:''};
  open({title:editing?'Modifica prodotto':'Nuovo prodotto',body:
@@ -140,16 +140,16 @@ async function lookupBarcode(code,options={}){
  const known=db.items.find(p=>p.barcode===code);if(known&&!options.refresh&&!Products.weakName(known.name))return {...reset(known),note:'Dati già confermati su questo dispositivo. Verifica confezione e scadenza del nuovo acquisto.'};
  const cacheKey=KEY+'-barcode-cache';let cache={};try{cache=JSON.parse(localStorage.getItem(cacheKey)||'{}')}catch(e){}
  if(!cache||typeof cache!=='object')cache={};
- if(!options.refresh&&cache[code]&&cache[code].catalogVersion===2)return reset(cache[code]);
+ if(!options.refresh&&cache[code]&&cache[code].catalogVersion===3)return reset(cache[code]);
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
  try{
-  const fields='product_name,product_name_it,generic_name,generic_name_it,brands,categories,categories_tags,storage_conditions,storage_conditions_tags,quantity,product_quantity_unit,nutriments,no_nutrition_data,allergens_tags,traces_tags,ingredients_text_it,ingredients_text,last_modified_t';
+  const fields='product_name,product_name_it,generic_name,generic_name_it,brands,categories,categories_tags,storage_conditions,storage_conditions_tags,quantity,product_quantity_unit,nutriments,no_nutrition_data,allergens_tags,traces_tags,ingredients_text_it,ingredients_text,last_modified_t,image_front_small_url,image_front_url';
   const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields='+fields,{signal:controller.signal});
   if(!response.ok)throw Error('Catalogo momentaneamente non disponibile');
   const data=await response.json(),p=data.product;if(!p)throw Error('Prodotto non trovato: puoi associarlo a questo codice manualmente');
   const name=Products.name(p),storage=Products.storage(name,p);if(!name)throw Error('Il catalogo non contiene un nome per questo codice');
   const tags=v=>Array.isArray(v)?v.map(t=>String(t).replace(/^[a-z]{2}:/,'')).join(', '):'';
-  const product={name,qty:1,unit:'confezioni',loc:storage.loc,storageReason:storage.reason,catalogVersion:2,brands:String(p.brands||''),categoriesTags:Array.isArray(p.categories_tags)?p.categories_tags:[],exp:'',barcode:code,packageSize:Food.packageSize(p.quantity),nutrition:Food.fromOFF(p),allergens:tags(p.allergens_tags),traces:tags(p.traces_tags),ingredientsText:String(p.ingredients_text_it||p.ingredients_text||''),allergenSource:'Open Food Facts: confrontare con etichetta',catalogSource:'https://world.openfoodfacts.org/product/'+code,catalogRetrievedAt:new Date().toISOString(),checked:true,confidence:'media',note:'Dati Open Food Facts. Confronta nome, confezione, allergeni e valori con l’etichetta. La scadenza non è nel barcode.'};
+  const product={name,qty:1,unit:'confezioni',loc:storage.loc,storageReason:storage.reason,catalogVersion:3,brands:String(p.brands||''),categoriesTags:Array.isArray(p.categories_tags)?p.categories_tags:[],exp:'',barcode:code,packageSize:Food.packageSize(p.quantity),portionSize:Food.portions(p.quantity),ingredientKey:Products.ingredient(name,p),imageUrl:Products.image(p.image_front_small_url||p.image_front_url),nutrition:Food.fromOFF(p),allergens:tags(p.allergens_tags),traces:tags(p.traces_tags),ingredientsText:String(p.ingredients_text_it||p.ingredients_text||''),allergenSource:'Open Food Facts: confrontare con etichetta',catalogSource:'https://world.openfoodfacts.org/product/'+code,catalogRetrievedAt:new Date().toISOString(),checked:true,confidence:'media',note:'Dati Open Food Facts. Confronta nome, confezione, allergeni e valori con l’etichetta. La scadenza non è nel barcode.'};
   cache[code]=product;const keys=Object.keys(cache);if(keys.length>300)delete cache[keys[0]];try{localStorage.setItem(cacheKey,JSON.stringify(cache))}catch(e){}
   return product;
  }catch(error){if(error.name==='AbortError')throw Error('Il catalogo non risponde. Puoi usare foto o inserimento manuale.');if(!options.refresh&&cache[code]){const fallback=reset(cache[code]);return {...fallback,loc:'',storageReason:'Scheda precedente non verificata: scegli la conservazione',note:'Catalogo non disponibile. Dati salvati in precedenza, da controllare.'}}throw error}finally{clearTimeout(timeout)}
@@ -308,7 +308,7 @@ document.addEventListener('click',async e=>{
    const checkbox=$('[data-review="'+i+'"]');if(!checkbox||!checkbox.checked)return;
    const name=$('#rvName'+i).value.trim(),qty=Number($('#rvQty'+i).value);
    const unit=$('#rvUnit'+i).value,loc=$('#rvLoc'+i).value,exp=$('#rvExp'+i).value;
-   if(name&&qty>0&&Number.isFinite(qty)){if(scanType==='scontrino'&&norm(name)!==norm(x.name)){db.ocrAliases={...(db.ocrAliases||{}),[norm(x.name)]:{name,loc}};const aliasKeys=Object.keys(db.ocrAliases);if(aliasKeys.length>500)delete db.ocrAliases[aliasKeys[0]];}addItem({name,qty,unit,loc,exp,nutrition:$('#rvN'+i+'_kcal')?readNutrients('rvN'+i+'_',$('#rvSource'+i).value,x.nutrition.basis):Food.cleanNutrition(x.nutrition),packageSize:x.packageSize||null,barcode:x.barcode||'',allergens:x.allergens||'',traces:x.traces||'',ingredientsText:x.ingredientsText||'',allergenSource:x.allergenSource||'',catalogSource:x.catalogSource||'',catalogRetrievedAt:x.catalogRetrievedAt||'',catalogVersion:x.catalogVersion||null,brands:x.brands||'',categoriesTags:x.categoriesTags||[]});done++}
+   if(name&&qty>0&&Number.isFinite(qty)){if(scanType==='scontrino'&&norm(name)!==norm(x.name)){db.ocrAliases={...(db.ocrAliases||{}),[norm(x.name)]:{name,loc}};const aliasKeys=Object.keys(db.ocrAliases);if(aliasKeys.length>500)delete db.ocrAliases[aliasKeys[0]];}addItem({name,qty,unit,loc,exp,nutrition:$('#rvN'+i+'_kcal')?readNutrients('rvN'+i+'_',$('#rvSource'+i).value,x.nutrition.basis):Food.cleanNutrition(x.nutrition),packageSize:x.packageSize||null,barcode:x.barcode||'',allergens:x.allergens||'',traces:x.traces||'',ingredientsText:x.ingredientsText||'',allergenSource:x.allergenSource||'',catalogSource:x.catalogSource||'',catalogRetrievedAt:x.catalogRetrievedAt||'',catalogVersion:x.catalogVersion||null,brands:x.brands||'',categoriesTags:x.categoriesTags||[],portionSize:x.portionSize||null,ingredientKey:x.ingredientKey||'',imageUrl:Products.image(x.imageUrl)});done++}
   });
   close();noteProductAdded(done);if(save())announceSaved(done+' prodotti aggiunti');return
  }

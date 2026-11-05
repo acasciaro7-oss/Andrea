@@ -24,5 +24,14 @@ const Products=(()=>{
   if(/\bpasta\b|spaghetti|penne|farina|biscotti|crackers|cereali|\briso\b|legumi secchi|\bte\b|\bcaffe\b|\bolio\b|\baceto\b|\bzucchero\b|\bsale\b/.test(n))return {loc:'Dispensa',reason:'Tipo di alimento normalmente conservato in dispensa'};
   return {loc:'',reason:'Conservazione non determinabile: scegli leggendo l’etichetta'};
  }
- return {name,storage,weakName};
+ function ingredient(name,p={}){
+  const n=Food.norm([name,p.generic_name_it,p.generic_name].join(' '));
+  if(/philadelphia|cream cheese|formaggio spalmabile/.test(n))return 'Formaggio spalmabile';
+  for(const key of ['Parmigiano','Mozzarella','Ricotta','Pasta sfoglia','Pasta brisée','Latte di cocco','Riso integrale','Prosciutto cotto'])if(Food.matches(key,n))return key;
+  return '';
+ }
+ function image(url){try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='images.openfoodfacts.org'?u.href:''}catch(e){return ''}}
+ return {name,storage,weakName,ingredient,image};
 })();
+
+function productPicture(p){const url=Products.image(p.imageUrl);return '<span class="symbol product-picture">'+emojiFor(p.ingredientKey||p.name)+(url?'<img src="'+esc(url)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+'</span>'}

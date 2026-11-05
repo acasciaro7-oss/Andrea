@@ -25,11 +25,17 @@ const Food=(()=>{
   if(a==='pasta'&&/sugo|salsa|sfoglia|brise|frolla|pasta fresca ripiena/.test(b))return false;
   if(['ceci','riso','mandorle','avena','mais'].includes(a)&&/farina|bevanda|crema|hummus/.test(b))return false;
   if(a==='ricotta'&&contains(b,'salata'))return false;
+  if(a==='formaggio'&&/spalmabile|mozzarella|parmigiano|ricotta|cream cheese/.test(b))return false;
   if(a==='pane'&&/pangrattato|pane grattugiato/.test(b))return false;
   return (aliases[a]||[a]).some(x=>contains(b,x));
  }
+ function productMatches(ingredient,p){
+  if(p.ingredientKey){const a=norm(ingredient),b=norm(p.ingredientKey);if(a===b)return true;return matches(ingredient,p.ingredientKey)}
+  return matches(ingredient,p.name);
+ }
+ function portions(text){const m=String(text||'').replace(/,/g,'.').match(/\b(\d{1,3})\s*[x×]\s*(\d+(?:\.\d+)?)\s*(kg|g|ml|cl|l)\b/i);if(!m||Number(m[1])<1)return null;const each=packageSize(m[2]+' '+m[3]);return each?{count:Number(m[1]),qty:each.qty,unit:each.unit,label:'porzioni'}:null}
  const basics=new Set(['olio','sale','pepe','acqua']);
- function available(name,items){return basics.has(norm(name))||items.some(p=>Number(p.qty)>0&&(!p.exp||p.exp>=localDate())&&matches(name,p.name))}
+ function available(name,items){return basics.has(norm(name))||items.some(p=>Number(p.qty)>0&&(!p.exp||p.exp>=localDate())&&productMatches(name,p))}
  function days(date){if(!/^\d{4}-\d\d-\d\d$/.test(date||''))return null;const now=new Date(localDate()+'T12:00:00');return Math.round((new Date(date+'T12:00:00')-now)/86400000)}
  function numeric(v,max=1000){if(v===null||v===undefined||String(v).trim()==='')return null;const n=Number(String(v).replace(',','.'));return Number.isFinite(n)&&n>=0&&n<=max?n:null}
  const nutrientKeys=['kcal','protein','carbs','fat','sugars','fiber','salt'];
@@ -55,6 +61,6 @@ const Food=(()=>{
   const qty=q*multiplier*(u==='kg'||u==='l'?1000:u==='cl'?10:1);if(!(qty>0&&qty<=100000))return null;
   return {qty,unit:['ml','cl','l'].includes(u)?'ml':'g'};
  }
- return {norm,matches,available,days,localDate,numeric,cleanNutrition,fromOFF,portion,packageSize,nutrientKeys};
+ return {norm,matches,productMatches,portions,available,days,localDate,numeric,cleanNutrition,fromOFF,portion,packageSize,nutrientKeys};
 })();
 

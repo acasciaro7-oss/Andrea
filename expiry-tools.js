@@ -84,6 +84,8 @@ document.addEventListener('click',async e=>{
  try{
   const product=await lookupBarcode(code,{refresh:true});if(!input.isConnected)return;
   if(input.value!==previousName||location.value!==previousLocation){toast('I campi sono cambiati durante la ricerca: ripeti l’aggiornamento');return}
+  for(const [field,value] of [['prodIngredient',product.ingredientKey],['prodImage',product.imageUrl]]){const node=document.getElementById(field);if(node&&value)node.value=value}
+  if(product.portionSize&&!document.getElementById('prodPortions').value){document.getElementById('prodPortions').value=product.portionSize.count;document.getElementById('prodEach').value=product.portionSize.qty;document.getElementById('prodEachUnit').value=product.portionSize.unit;}
   input.value=product.name;if(!product.loc&&!location.querySelector('option[value=""]'))location.insertAdjacentHTML('afterbegin','<option value="">Scegli dove conservarlo</option>');location.value=product.loc;
   toast('Nome e conservazione riletti. Quantità e scadenza sono conservate: controlla e salva.');
  }catch(error){toast(error.message)}finally{if(button.isConnected)button.disabled=false}

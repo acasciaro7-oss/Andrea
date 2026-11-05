@@ -2,7 +2,7 @@
 let recipeCategory='Tutte',recipeMode='Tutte',recipeDiet='Tutte',recipeTime=0,recipeLimit=30;
 const recipeCategories=['Tutte','Primi','Secondi','Piatti unici','Zuppe','Contorni','Colazioni e dolci'];
 function recipeMissing(r){return r[3].filter(n=>!have(n))}
-function recipeUrgent(r){return r[3].some(n=>db.items.some(p=>Number(p.qty)>0&&Food.matches(n,p.name)&&Food.days(p.exp)!==null&&Food.days(p.exp)>=0&&Food.days(p.exp)<=7))}
+function recipeUrgent(r){return r[3].some(n=>db.items.some(p=>Number(p.qty)>0&&Food.productMatches(n,p)&&Food.days(p.exp)!==null&&Food.days(p.exp)>=0&&Food.days(p.exp)<=7))}
 function recipeScore(r){const missing=recipeMissing(r).length;return (missing===0?10000:0)+(1-missing/r[3].length)*1000-missing*30+(recipeUrgent(r)?10:0)}
 function sortedRecipes(list){return list.map(r=>({r,score:recipeScore(r)})).sort((a,b)=>b.score-a.score||a.r[0].localeCompare(b.r[0],'it')).map(x=>x.r)}
 function recipeList(){
@@ -23,7 +23,7 @@ function formatRecipeAmount(item,people,base){const q=Math.round(item.qty*people
 function recipeNutrition(r,people){
  const meta=r[5],totals=Object.fromEntries(Food.nutrientKeys.map(k=>[k,0]));let covered=0;
  for(const i of meta.ingredients){
-  const product=db.items.find(p=>Number(p.qty)>0&&Food.matches(i.name,p.name)&&p.nutrition&&p.nutrition.basis===i.unit&&(!p.exp||p.exp>=Food.localDate()));
+  const product=db.items.find(p=>Number(p.qty)>0&&Food.productMatches(i.name,p)&&p.nutrition&&p.nutrition.basis===i.unit&&(!p.exp||p.exp>=Food.localDate()));
   const values=product&&Food.portion(product.nutrition,i.qty*people/meta.servings,i.unit);
   if(!values){Food.nutrientKeys.forEach(k=>totals[k]=null);continue;}
   covered++;Food.nutrientKeys.forEach(k=>{if(totals[k]!==null)totals[k]=values[k]===null?null:totals[k]+values[k]});
@@ -31,3 +31,4 @@ function recipeNutrition(r,people){
  if(covered!==meta.ingredients.length)return null;
  return {totals:Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,v===null?null:Math.round(v/people*10)/10])),source:'Stima dai prodotti della dispensa; condimenti esclusi'};
 }
+
