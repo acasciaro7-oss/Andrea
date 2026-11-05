@@ -1,25 +1,16 @@
 'use strict';
 const OCR=(()=>{
  const norm=Food.norm;
- const words=[...new Set(RECIPE_CATALOG.flatMap(r=>r.ingredients.map(i=>i.name)).concat(['Ravioli','Tortellini','Cappelletti','Spaghetti','Penne','Lasagne','Biscotti','Yogurt','Latte','Pizza','Pane','Gelato','Mortadella','Prosciutto','Farina','Minestrone']))];
+ const words=[...new Set(RECIPE_CATALOG.flatMap(r=>r.ingredients.map(i=>i.name)).concat(['Ravioli','Tortellini','Cappelletti','Spaghetti','Penne','Lasagne','Biscotti','Yogurt','Latte','Pizza','Pane','Gelato','Mortadella','Prosciutto','Farina','Minestrone','Philadelphia']))];
  const vocab=words.map(label=>({label,term:norm(label)})).sort((a,b)=>b.term.length-a.term.length);
  function distance(a,b){if(Math.abs(a.length-b.length)>1)return 2;const v=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let prev=v[0];v[0]=i;for(let j=1;j<=b.length;j++){const old=v[j];v[j]=Math.min(v[j]+1,v[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=old}}return v[b.length]}
  function detect(text){
   const n=norm(text);for(const x of vocab)if((' '+n+' ').includes(' '+x.term+' '))return {...x,exact:true};
   const tokens=n.split(' ');for(const x of vocab){if(x.term.includes(' ')||x.term.length<6)continue;if(tokens.some(t=>distance(t,x.term)<=1))return {...x,exact:false}}return null;
  }
- function location(text){const n=norm(text);if(/latte/.test(n)&&/uht|lunga conservazione/.test(n))return 'Dispensa';return /surgelat|congelat|freezer/.test(n)?'Freezer':/latte|yogurt|mozzarella|ricotta|formaggio|pollo|tacchino|salmone|merluzzo|carne|prosciutto|ravioli|tortellini|pasta fresca|burro|scamorza/.test(n)?'Frigo':'Dispensa'}
+ function location(text){return Products.storage(text).loc||'Dispensa'}
  function lines(text){return String(text||'').replace(/[¦]/g,'I').split(/\r?\n/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean)}
- function expiration(text){
-  const s=String(text||''),out=[];let m;const re=/\b([0-3]?\d)[/.-]([01]?\d)[/.-]((?:20)?\d\d)\b/g;
-  while((m=re.exec(s))){const y=Number(m[3])<100?2000+Number(m[3]):Number(m[3]),mo=Number(m[2]),d=Number(m[1]),date=new Date(Date.UTC(y,mo-1,d));
-   if(date.getUTCDate()!==d||date.getUTCMonth()!==mo-1||y<2020||y>2040)continue;
-   const before=norm(s.slice(Math.max(0,m.index-90),m.index));
-   if(/prodotto il|confezionat|data acquisto|emissione|lotto/.test(before.slice(-45)))continue;
-   if(!/consumare|scad|best before|use by|entro/.test(before))continue;
-   out.push(y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'));
-  }return out[0]||'';
- }
+ function expiration(text){return Expiry.automatic(text)}
  function nutrition(text){
   const rows=lines(text),header=rows.find(x=>/100\s*(?:g|ml)\b/i.test(x));if(!header)return null;
   const n={basis:/100\s*ml/i.test(header)?'ml':'g',source:'Etichetta letta da foto: da verificare'};
@@ -42,6 +33,7 @@ const OCR=(()=>{
   if(!candidates.length)return [];
   const best=candidates[0];let name=best.line.replace(/\b\d+(?:[,.]\d+)?\s*(?:kg|ml|cl|g|l)\b/ig,'').replace(/\s+/g,' ').trim();
   if(name.length<4||name.length>90)name=best.match.label;
+  if(/philadelphia/i.test(name)){const variant=rows.find(x=>/^(mini|original|originale|light)\b/i.test(x));if(variant&&!/mini|original|light/i.test(name))name+=' '+variant;}
   const packRows=rows.filter(x=>!reject.test(x)&&!/energia|kcal|zuccheri|fibre|sale\b/i.test(x)).join('\n');
   return [{name,qty:1,unit:'confezioni',loc:/surgelat|congelat|freezer/i.test(text)?'Freezer':/conservare.{0,20}frigorifero/i.test(text)?'Frigo':location(name),exp:expiration(text),packageSize:Food.packageSize(packRows),nutrition:nutrition(text),checked:true,confidence:best.match.exact?'media':'bassa',note:'Testo letto sul telefono. Verifica nome, contenuto, conservazione, scadenza e valori nutrizionali prima di confermare.'}];
  }

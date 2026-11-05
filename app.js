@@ -119,8 +119,8 @@ function reviewModal(){
  '<label class="label">Alimento</label><input class="field" id="rvName'+i+'" value="'+esc(p.name)+'">'+
  '<div class="grid2"><div><label class="label">Quantità</label><input class="field" id="rvQty'+i+'" type="number" min=".1" step=".1" value="'+(Number(p.qty)||1)+'"></div>'+
  '<div><label class="label">Unità</label><select class="field" id="rvUnit'+i+'">'+units.map(x=>'<option '+(x===(p.unit||'pz')?'selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+
- '<label class="label">Conservazione</label><select class="field" id="rvLoc'+i+'">'+locations.map(x=>'<option '+(x===(p.loc||'Dispensa')?'selected':'')+'>'+x+'</option>').join('')+'</select>'+
- '<label class="label">Scadenza (se leggibile)</label><input class="field" type="date" id="rvExp'+i+'" value="'+esc(p.exp||'')+'">'+
+ '<label class="label">Conservazione</label><select class="field" id="rvLoc'+i+'">'+(!locations.includes(p.loc)?'<option value="" selected>Scegli dove conservarlo</option>':'')+locations.map(x=>'<option '+(x===p.loc?'selected':'')+'>'+x+'</option>').join('')+'</select>'+
+ '<label class="label">Scadenza (se leggibile)</label><input class="field" type="date" id="rvExp'+i+'" value="'+esc(p.exp||'')+'">'+expiryControls('rvExp'+i,scanType==='prodotto'?lastOcrText:'')+(p.storageReason?'<p class="muted">'+esc(p.storageReason)+'</p>':'')+
  (p.note?'<p class="muted">'+esc(p.note)+'</p>':'')+'<p class="muted">Allergeni dichiarati: '+esc(p.allergens||'non noti')+'. Tracce: '+esc(p.traces||'non note')+'. Verifica l’etichetta.</p>'+(p.packageSize?'<p class="muted">Confezione: '+numText(p.packageSize.qty)+' '+esc(p.packageSize.unit)+'</p>':'')+(p.nutrition?nutritionSummary(p.nutrition)+'<details class="nutrition-editor"><summary>Correggi i valori letti</summary>'+nutrientFields('rvN'+i+'_',p.nutrition)+'<input hidden id="rvSource'+i+'" value="'+esc(p.nutrition.source)+'"></details>':'')+'</div>').join('')+
  (lastOcrText?'<details class="nutrition-editor"><summary>Controlla e correggi il testo letto</summary><textarea class="field" id="ocrText" rows="8">'+esc(lastOcrText)+'</textarea><button class="btn small white" data-a="reparseOcr">Rileggi dal testo corretto</button></details>':'')+
  '<button class="btn full" data-a="reviewSave">Conferma e aggiungi alla dispensa</button>'});
@@ -134,24 +134,25 @@ async function loadTess(){
  document.head.appendChild(s);
  });
 }
-async function lookupBarcode(code){
+async function lookupBarcode(code,options={}){
  code=String(code).trim();if(!Kitchen.barcode(code))throw Error('Inserisci un codice di 8, 12, 13 o 14 cifre');
  const reset=p=>{const {id,...rest}=p;return {...rest,qty:1,exp:'',opened:'',minQty:0,checked:true,confidence:'media'}};
- const known=db.items.find(p=>p.barcode===code);if(known)return {...reset(known),note:'Dati già confermati su questo dispositivo. Verifica confezione e scadenza del nuovo acquisto.'};
+ const known=db.items.find(p=>p.barcode===code);if(known&&!options.refresh&&!Products.weakName(known.name))return {...reset(known),note:'Dati già confermati su questo dispositivo. Verifica confezione e scadenza del nuovo acquisto.'};
  const cacheKey=KEY+'-barcode-cache';let cache={};try{cache=JSON.parse(localStorage.getItem(cacheKey)||'{}')}catch(e){}
- if(cache[code])return reset(cache[code]);
+ if(!cache||typeof cache!=='object')cache={};
+ if(!options.refresh&&cache[code]&&cache[code].catalogVersion===2)return reset(cache[code]);
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
  try{
-  const fields='product_name,product_name_it,brands,quantity,product_quantity_unit,nutriments,no_nutrition_data,allergens_tags,traces_tags,ingredients_text_it,ingredients_text,last_modified_t';
+  const fields='product_name,product_name_it,generic_name,generic_name_it,brands,categories,categories_tags,storage_conditions,storage_conditions_tags,quantity,product_quantity_unit,nutriments,no_nutrition_data,allergens_tags,traces_tags,ingredients_text_it,ingredients_text,last_modified_t';
   const response=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields='+fields,{signal:controller.signal});
   if(!response.ok)throw Error('Catalogo momentaneamente non disponibile');
   const data=await response.json(),p=data.product;if(!p)throw Error('Prodotto non trovato: puoi associarlo a questo codice manualmente');
-  const name=String(p.product_name_it||p.product_name||'').trim();if(!name)throw Error('Il catalogo non contiene un nome per questo codice');
+  const name=Products.name(p),storage=Products.storage(name,p);if(!name)throw Error('Il catalogo non contiene un nome per questo codice');
   const tags=v=>Array.isArray(v)?v.map(t=>String(t).replace(/^[a-z]{2}:/,'')).join(', '):'';
-  const product={name,qty:1,unit:'confezioni',loc:OCR.location(name),exp:'',barcode:code,packageSize:Food.packageSize(p.quantity),nutrition:Food.fromOFF(p),allergens:tags(p.allergens_tags),traces:tags(p.traces_tags),ingredientsText:String(p.ingredients_text_it||p.ingredients_text||''),allergenSource:'Open Food Facts: confrontare con etichetta',catalogSource:'https://world.openfoodfacts.org/product/'+code,catalogRetrievedAt:new Date().toISOString(),checked:true,confidence:'media',note:'Dati Open Food Facts. Confronta nome, confezione, allergeni e valori con l’etichetta. La scadenza non è nel barcode.'};
+  const product={name,qty:1,unit:'confezioni',loc:storage.loc,storageReason:storage.reason,catalogVersion:2,brands:String(p.brands||''),categoriesTags:Array.isArray(p.categories_tags)?p.categories_tags:[],exp:'',barcode:code,packageSize:Food.packageSize(p.quantity),nutrition:Food.fromOFF(p),allergens:tags(p.allergens_tags),traces:tags(p.traces_tags),ingredientsText:String(p.ingredients_text_it||p.ingredients_text||''),allergenSource:'Open Food Facts: confrontare con etichetta',catalogSource:'https://world.openfoodfacts.org/product/'+code,catalogRetrievedAt:new Date().toISOString(),checked:true,confidence:'media',note:'Dati Open Food Facts. Confronta nome, confezione, allergeni e valori con l’etichetta. La scadenza non è nel barcode.'};
   cache[code]=product;const keys=Object.keys(cache);if(keys.length>300)delete cache[keys[0]];try{localStorage.setItem(cacheKey,JSON.stringify(cache))}catch(e){}
   return product;
- }catch(error){if(error.name==='AbortError')throw Error('Il catalogo non risponde. Puoi usare foto o inserimento manuale.');throw error}finally{clearTimeout(timeout)}
+ }catch(error){if(error.name==='AbortError')throw Error('Il catalogo non risponde. Puoi usare foto o inserimento manuale.');if(!options.refresh&&cache[code]){const fallback=reset(cache[code]);return {...fallback,loc:'',storageReason:'Scheda precedente non verificata: scegli la conservazione',note:'Catalogo non disponibile. Dati salvati in precedenza, da controllare.'}}throw error}finally{clearTimeout(timeout)}
 }
 function waiting(text){open({title:'Sto leggendo la foto',body:'<div class="notice" id="readStatus">'+esc(text)+'</div><p class="muted">L’operazione dipende dalla qualità della foto e dalla connessione.</p>'})}
 
@@ -166,7 +167,7 @@ function makeOcrCanvas(img,options){
  const width=img.naturalWidth,height=img.naturalHeight;
  const canvas=document.createElement('canvas');
  const cropY=options.crop?Math.round(height*.02):0,cropH=options.crop?Math.round(height*.70):height;
- const scale=Math.min(2,2200/width,4000/cropH);
+ const scale=Math.min(2,(options.maxWidth||2200)/width,(options.maxHeight||4000)/cropH);
  canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(cropH*scale));
  const ctx=canvas.getContext('2d',{willReadFrequently:true});
  ctx.drawImage(img,0,cropY,width,cropH,0,0,canvas.width,canvas.height);
@@ -224,7 +225,7 @@ async function processPhoto(file){
   }
   if(barcodeOnly&&barcodeProduct){review=[barcodeProduct];reviewModal();return;}
   let recognized=[];try{recognized=await recognizePhotoOffline(file)}catch(error){if(!barcodeProduct)throw error;}
-  if(barcodeProduct){const photo=recognized[0];review=[Object.assign({},photo||{},barcodeProduct,{exp:photo?photo.exp:'',packageSize:barcodeProduct.packageSize||photo&&photo.packageSize||null,nutrition:barcodeProduct.nutrition||photo&&photo.nutrition||null})]}
+  if(barcodeProduct){const photo=recognized[0];review=[Object.assign({},photo||{},barcodeProduct,{exp:findExpiration(lastOcrText),packageSize:barcodeProduct.packageSize||photo&&photo.packageSize||null,nutrition:barcodeProduct.nutrition||photo&&photo.nutrition||null})]}
   else review=recognized.map(p=>({...p,...(detectedBarcode?{barcode:detectedBarcode}:{})}));
   if(!review.length)throw Error('Non ho individuato alimenti con sufficiente affidabilità. Prova una foto più nitida, vicina al testo, oppure inserisci manualmente.');
   reviewModal();
@@ -300,12 +301,14 @@ document.addEventListener('click',async e=>{
  }
  if(act==='reparseOcr'){lastOcrText=$('#ocrText').value;review=scanType==='prodotto'?parsePhotoProduct(lastOcrText):parseReceipt(lastOcrText);reviewModal();return}
  if(act==='reviewSave'){
+  const selected=review.map((x,i)=>({x,i})).filter(({i})=>$('[data-review="'+i+'"]')?.checked);
+  if(selected.some(({i})=>!$('#rvName'+i).value.trim()||!(Number($('#rvQty'+i).value)>0)||!Number.isFinite(Number($('#rvQty'+i).value))||!locations.includes($('#rvLoc'+i).value)||!Kitchen.validDate($('#rvExp'+i).value))){toast('Controlla nome, quantità, conservazione e scadenza dei prodotti selezionati');return}
   let done=0;
   review.forEach((x,i)=>{
    const checkbox=$('[data-review="'+i+'"]');if(!checkbox||!checkbox.checked)return;
    const name=$('#rvName'+i).value.trim(),qty=Number($('#rvQty'+i).value);
    const unit=$('#rvUnit'+i).value,loc=$('#rvLoc'+i).value,exp=$('#rvExp'+i).value;
-   if(name&&qty>0&&Number.isFinite(qty)){if(scanType==='scontrino'&&norm(name)!==norm(x.name)){db.ocrAliases={...(db.ocrAliases||{}),[norm(x.name)]:{name,loc}};const aliasKeys=Object.keys(db.ocrAliases);if(aliasKeys.length>500)delete db.ocrAliases[aliasKeys[0]];}addItem({name,qty,unit,loc,exp,nutrition:$('#rvN'+i+'_kcal')?readNutrients('rvN'+i+'_',$('#rvSource'+i).value,x.nutrition.basis):Food.cleanNutrition(x.nutrition),packageSize:x.packageSize||null,barcode:x.barcode||'',allergens:x.allergens||'',traces:x.traces||'',ingredientsText:x.ingredientsText||'',allergenSource:x.allergenSource||'',catalogSource:x.catalogSource||'',catalogRetrievedAt:x.catalogRetrievedAt||''});done++}
+   if(name&&qty>0&&Number.isFinite(qty)){if(scanType==='scontrino'&&norm(name)!==norm(x.name)){db.ocrAliases={...(db.ocrAliases||{}),[norm(x.name)]:{name,loc}};const aliasKeys=Object.keys(db.ocrAliases);if(aliasKeys.length>500)delete db.ocrAliases[aliasKeys[0]];}addItem({name,qty,unit,loc,exp,nutrition:$('#rvN'+i+'_kcal')?readNutrients('rvN'+i+'_',$('#rvSource'+i).value,x.nutrition.basis):Food.cleanNutrition(x.nutrition),packageSize:x.packageSize||null,barcode:x.barcode||'',allergens:x.allergens||'',traces:x.traces||'',ingredientsText:x.ingredientsText||'',allergenSource:x.allergenSource||'',catalogSource:x.catalogSource||'',catalogRetrievedAt:x.catalogRetrievedAt||'',catalogVersion:x.catalogVersion||null,brands:x.brands||'',categoriesTags:x.categoriesTags||[]});done++}
   });
   close();noteProductAdded(done);if(save())announceSaved(done+' prodotti aggiunti');return
  }
